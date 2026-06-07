@@ -1,0 +1,15 @@
+# Local configuration and secrets
+config.php
+.env
+
+# Runtime files
+storage/imports/*
+storage/exports/*
+!storage/imports/.gitkeep
+!storage/exports/.gitkeep
+
+# OS/editor
+.DS_Store
+.idea/
+.vscode/
+*.log

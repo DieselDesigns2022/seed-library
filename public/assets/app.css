@@ -1,0 +1,23 @@
+:root { --seed-green: #198754; }
+body { min-height: 100vh; }
+.card-metric { border-left: .35rem solid var(--seed-green); }
+.table-responsive { min-height: 12rem; }
+.form-label { font-weight: 600; }
+.mobile-card { display: none; }
+.seed-badge { white-space: normal; }
+.table th a { color: inherit; text-decoration: none; }
+.table th a:hover { color: var(--seed-green); text-decoration: underline; }
+@media (max-width: 768px) {
+  .desktop-table { display: none; }
+  .mobile-card { display: block; }
+  .btn, .form-control, .form-select { min-height: 44px; }
+  .table-responsive { overflow-x: auto; }
+}
+@media print {
+  .navbar, .no-print, .btn, form, .alert { display: none !important; }
+  body { background: white !important; }
+  main.container-fluid { padding: 0 !important; }
+  .card { border: 0; box-shadow: none !important; }
+  a { color: #000; text-decoration: none; }
+  .page-break { page-break-before: always; }
+}
