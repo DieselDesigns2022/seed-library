@@ -188,35 +188,152 @@ function seed_detail_page(int $id): void
     render($seed['name'], function () use ($seed, $uses, $companions, $history) { include BASE_PATH . '/app/templates/seed_detail.php'; });
 }
 
+function calendar_group_rules(): array
+{
+    // Phase 3 inferred groups are centralized here. Fall Crop means a planting
+    // window that includes Aug-Nov (including explicit Plantable Months); the
+    // other groups use existing method, category, and medicinal flag data.
+    return [
+        'direct_sow'=>'Direct Sow', 'start_indoors'=>'Start Indoors', 'transplant'=>'Transplant',
+        'fall_crop'=>'Fall Crop', 'flowers'=>'Flowers', 'herbs'=>'Herbs', 'medicinal'=>'Medicinal',
+    ];
+}
+
+function calendar_month_in_range(int $month, mixed $start, mixed $end): bool
+{
+    if ($start === null || $end === null) return false;
+    $start=(int)$start; $end=(int)$end;
+    return $start <= $end ? $month >= $start && $month <= $end : $month >= $start || $month <= $end;
+}
+
+function calendar_general_month_matches(array $seed, int $month): bool
+{
+    $months=array_map('intval',array_filter(explode(',',(string)($seed['plantable_months']??''))));
+    if ($months) return in_array($month,$months,true);
+    return calendar_month_in_range($month,$seed['planting_start_month']??null,$seed['planting_end_month']??null);
+}
+
+function calendar_method_month_matches(array $seed, string $group, int $month): bool
+{
+    $methods=[
+        'direct_sow'=>['direct_sow',['Direct Sow','Direct Sow or Transplant']],
+        'start_indoors'=>['indoor',['Start Indoors']],
+        'transplant'=>['transplant',['Transplant','Direct Sow or Transplant']],
+    ];
+    if (!isset($methods[$group])) return false;
+    [$prefix,$methodNames]=$methods[$group];
+    $start=$seed[$prefix.'_start_month']??null; $end=$seed[$prefix.'_end_month']??null;
+    // A complete dedicated range is authoritative, including cross-year ranges.
+    if ($start !== null && $end !== null) return calendar_month_in_range($month,$start,$end);
+    // Only method-capable seeds fall back to the general window/month selection.
+    return in_array($seed['planting_method']??null,$methodNames,true) && calendar_general_month_matches($seed,$month);
+}
+
+function calendar_group_matches(array $seed, string $group, int $month): bool
+{
+    if (in_array($group,['direct_sow','start_indoors','transplant'],true)) {
+        return calendar_method_month_matches($seed,$group,$month);
+    }
+    $category=strtolower(trim((string)($seed['category_name']??'')));
+    $months=[];
+    for ($candidate=1;$candidate<=12;$candidate++) if (calendar_general_month_matches($seed,$candidate)) $months[]=$candidate;
+    return match($group) {
+        'fall_crop'=>(bool)array_intersect($months,[8,9,10,11]),
+        'flowers'=>in_array($category,['flower','flowers'],true),
+        'herbs'=>in_array($category,['herb','herbs'],true),
+        'medicinal'=>!empty($seed['medicinal'])||$category==='medicinal',
+        default=>true,
+    };
+}
+
 function calendar_page(): void
 {
-    $month = (int)($_GET['month'] ?? date('n'));
-    if ($month < 1 || $month > 12) { $month = (int)date('n'); }
-    $seeds = seed_query(['plantable_month' => $month, 'sort' => 'planting_start_month']);
-    render('Planting Calendar', function () use ($month, $seeds) { ?>
-    <div class="d-flex justify-content-between align-items-center mb-3"><h1>Planting Calendar</h1><a class="btn btn-outline-secondary" href="<?= e(url('print?report=calendar&month=' . $month)) ?>">Print</a></div>
-    <form class="card card-body mb-3"><label class="form-label">Select Month</label><select class="form-select" name="month" onchange="this.form.submit()"><?php for($m=1;$m<=12;$m++): ?><option value="<?= $m ?>" <?= $m===$month?'selected':'' ?>><?= e(month_name($m)) ?></option><?php endfor; ?></select></form>
-    <div class="card"><div class="card-header fw-bold">Seeds plantable in <?= e(month_name($month)) ?></div><div class="table-responsive"><table class="table table-hover mb-0"><thead><tr><th>Seed #</th><th>Name</th><th>Method</th><th>Window</th><th>Flags</th></tr></thead><tbody><?php foreach($seeds as $s): ?><tr><td><?= e($s['seed_number']) ?></td><td><a href="<?= e(url('seeds/'.$s['id'])) ?>"><?= e($s['name']) ?></a></td><td><?= e($s['planting_method']) ?></td><td><?= e(date_label($s['planting_start_month'],$s['planting_start_day'])) ?> – <?= e(date_label($s['planting_end_month'],$s['planting_end_day'])) ?></td><td><?= $s['frost_tolerant']?'❄️':'' ?> <?= $s['heat_tolerant']?'☀️':'' ?></td></tr><?php endforeach; if(!$seeds): ?><tr><td colspan="5" class="text-muted">No seeds found for this month.</td></tr><?php endif; ?></tbody></table></div></div>
-    <?php });
+    $month=(int)($_GET['month']??date('n')); if($month<1||$month>12)$month=(int)date('n');
+    $rules=calendar_group_rules(); $group=(string)($_GET['group']??''); if(!isset($rules[$group]))$group='';
+    $methodGroups=['direct_sow','start_indoors','transplant'];
+    // All and non-method groups retain the established general-month query. Method
+    // groups start from inventory so a dedicated range can include a seed even when
+    // its general planting window does not overlap the selected month.
+    $seeds=in_array($group,$methodGroups,true)
+        ? seed_query(['sort'=>'planting_start_month'])
+        : seed_query(['plantable_month'=>$month,'sort'=>'planting_start_month']);
+    if($group!=='')$seeds=array_values(array_filter($seeds,fn($seed)=>calendar_group_matches($seed,$group,$month)));
+    render('Planting Calendar', function() use($month,$seeds,$rules,$group){ ?>
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-3"><div><h1>Planting Calendar</h1><p class="text-muted mb-0">Year-independent windows include explicit Plantable Months and cross-year ranges.</p></div><a class="btn btn-outline-secondary" href="<?=e(url('print?report=calendar&month='.$month))?>">Print</a></div>
+    <form class="card card-body mb-3"><div class="row g-2"><div class="col-md-6"><label class="form-label" for="calendar-month">Select Month</label><select id="calendar-month" class="form-select" name="month"><?php for($m=1;$m<=12;$m++):?><option value="<?=$m?>" <?=$m===$month?'selected':''?>><?=e(month_name($m))?></option><?php endfor?></select></div><div class="col-md-6"><label class="form-label" for="calendar-group">Group / Filter</label><select id="calendar-group" class="form-select" name="group"><option value="">All plantable seeds</option><?php foreach($rules as $key=>$label):?><option value="<?=e($key)?>" <?=$group===$key?'selected':''?>><?=e($label)?></option><?php endforeach?></select></div><div class="col-12"><button class="btn btn-success">Show Calendar</button></div></div></form>
+    <div class="card"><div class="card-header fw-bold"><?=e($group!==''?$rules[$group].' · ':'')?><?=e(month_name($month))?> (<?=count($seeds)?>)</div><div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead><tr><th>Seed Number</th><th>Seed Name</th><th>Category</th><th>Planting Method</th><th>Start Planting Date</th><th>Last Planting Date</th><th>Days to Harvest/Maturity</th><th>Notes</th><th>View Seed</th></tr></thead><tbody><?php foreach($seeds as $seed):?><tr><td><?=e($seed['seed_number'])?></td><td><?=e($seed['name'])?></td><td><?=e($seed['category_name']?:'—')?></td><td><?=e($seed['planting_method']?:'—')?></td><td><?=e(date_label($seed['planting_start_month'],$seed['planting_start_day']))?></td><td><?=e(date_label($seed['planting_end_month'],$seed['planting_end_day']))?></td><td><?=e($seed['days_to_maturity']!==null?$seed['days_to_maturity'].' days':'—')?></td><td class="calendar-notes"><?=($seed['notes']??'')!==''?nl2br(e($seed['notes'])):'—'?></td><td><a class="btn btn-sm btn-outline-success" href="<?=e(url('seeds/'.$seed['id']))?>">View Seed</a></td></tr><?php endforeach;if(!$seeds):?><tr><td colspan="9" class="text-muted">No seeds match this month and group.</td></tr><?php endif?></tbody></table></div></div><?php });
+}
+
+/**
+ * Relationship direction is centralized here: only mutual compatibility types
+ * are symmetric. Functional roles retain the stored seed -> companion direction.
+ */
+function companion_relationship_direction_rules(): array
+{
+    return [
+        'Good Companion'=>'symmetric', 'Avoid'=>'symmetric', 'Neutral'=>'symmetric',
+        'Pest Deterrent'=>'directional', 'Trap Crop'=>'directional',
+        'Support Plant'=>'directional', 'Pollinator Support'=>'directional',
+    ];
+}
+
+function companion_finder_deduplicate(array $rows, array $directionRules): array
+{
+    $deduplicated=[];
+    foreach($rows as $row) {
+        $key=(int)$row['seed_id'].'|'.$row['relationship_type'];
+        if(!isset($deduplicated[$key])) {
+            $row['_notes']=[]; $row['_directions']=[]; $deduplicated[$key]=$row;
+        }
+        $notes=trim((string)($row['notes']??''));
+        if($notes!=='') $deduplicated[$key]['_notes'][$notes]=true;
+        if(($directionRules[$row['relationship_type']]??'directional')==='directional') {
+            $direction=$row['source_name'].' #'.$row['source_number'].' → '.$row['target_name'].' #'.$row['target_number'];
+            $deduplicated[$key]['_directions'][$direction]=true;
+        }
+    }
+    foreach($deduplicated as &$row) {
+        $notes=array_keys($row['_notes']); sort($notes,SORT_NATURAL|SORT_FLAG_CASE);
+        $directions=array_keys($row['_directions']); sort($directions,SORT_NATURAL|SORT_FLAG_CASE);
+        $row['notes']=$notes?implode('; ',$notes):null;
+        $row['direction']=$directions?implode('; ',$directions):'Mutual';
+        unset($row['_notes'],$row['_directions']);
+    }
+    unset($row);
+    return array_values($deduplicated);
 }
 
 function companions_page(): void
 {
-    $q = trim((string)($_GET['q'] ?? ''));
-    $type = trim((string)($_GET['type'] ?? ''));
-    $allowedTypes=['Good Companion','Avoid','Neutral','Pest Deterrent','Trap Crop','Support Plant','Pollinator Support'];
-    if ($type !== '' && !in_array($type, $allowedTypes, true)) { $type = ''; }
-    $sql = 'SELECT cr.relationship_type, cr.notes, s.name AS seed_name, s.seed_number AS seed_number, cs.name AS companion_name, cs.seed_number AS companion_number, s.id AS seed_id, cs.id AS companion_id FROM companion_relationships cr JOIN seeds s ON s.id=cr.seed_id JOIN seeds cs ON cs.id=cr.companion_seed_id';
-    $where=[]; $params=[];
-    if ($q !== '') { $where[]='(s.name LIKE ? OR cs.name LIKE ? OR s.seed_number LIKE ? OR cs.seed_number LIKE ?)'; $term="%$q%"; array_push($params,$term,$term,$term,$term); }
-    if ($type !== '') { $where[]='cr.relationship_type=?'; $params[]=$type; }
-    if ($where) $sql .= ' WHERE ' . implode(' AND ', $where);
-    $sql .= ' ORDER BY s.name, cr.relationship_type, cs.name';
-    $stmt=db()->prepare($sql); $stmt->execute($params); $rows=$stmt->fetchAll();
-    render('Companion Finder', function () use ($rows,$q,$type,$allowedTypes) { ?>
-    <h1>Companion Finder</h1><form class="card card-body mb-3"><div class="row g-2"><div class="col-md-8"><label class="form-label">Search plants</label><input class="form-control" name="q" value="<?= e($q) ?>"></div><div class="col-md-4"><label class="form-label">Relationship</label><select class="form-select" name="type"><option value="">All</option><?php foreach($allowedTypes as $t): ?><option <?= $type===$t?'selected':'' ?>><?= e($t) ?></option><?php endforeach; ?></select></div><div class="col-12"><button class="btn btn-success">Search</button></div></div></form>
-    <div class="card"><div class="table-responsive"><table class="table table-hover mb-0"><thead><tr><th>Plant</th><th>Relationship</th><th>Companion</th><th>Notes</th></tr></thead><tbody><?php foreach($rows as $r): ?><tr><td><a href="<?= e(url('seeds/'.$r['seed_id'])) ?>"><?= e($r['seed_name']) ?></a></td><td><span class="badge bg-success"><?= e($r['relationship_type']) ?></span></td><td><a href="<?= e(url('seeds/'.$r['companion_id'])) ?>"><?= e($r['companion_name']) ?></a></td><td><?= e($r['notes']) ?></td></tr><?php endforeach; if(!$rows): ?><tr><td colspan="4" class="text-muted">No companion records found. Add relationships from a seed edit page.</td></tr><?php endif; ?></tbody></table></div></div>
-    <?php });
+    $q=trim((string)($_GET['q']??'')); $type=trim((string)($_GET['type']??''));
+    $directionRules=companion_relationship_direction_rules(); $types=array_keys($directionRules);
+    if($type!==''&&!isset($directionRules[$type]))$type='';
+    $sql="SELECT cr.id relationship_id, cr.relationship_type, cr.notes,
+        CASE WHEN ? <> '' AND (target.name LIKE ? OR target.variety LIKE ? OR target.seed_number LIKE ?) THEN source.id ELSE target.id END seed_id,
+        CASE WHEN ? <> '' AND (target.name LIKE ? OR target.variety LIKE ? OR target.seed_number LIKE ?) THEN source.seed_number ELSE target.seed_number END seed_number,
+        CASE WHEN ? <> '' AND (target.name LIKE ? OR target.variety LIKE ? OR target.seed_number LIKE ?) THEN source.name ELSE target.name END seed_name,
+        CASE WHEN ? <> '' AND (target.name LIKE ? OR target.variety LIKE ? OR target.seed_number LIKE ?) THEN source_category.name ELSE target_category.name END category_name,
+        source.id source_id, source.seed_number source_number, source.name source_name,
+        target.id target_id, target.seed_number target_number, target.name target_name
+        FROM companion_relationships cr
+        JOIN seeds source ON source.id=cr.seed_id
+        JOIN seeds target ON target.id=cr.companion_seed_id
+        LEFT JOIN categories source_category ON source_category.id=source.category_id
+        LEFT JOIN categories target_category ON target_category.id=target.category_id";
+    $term='%'.$q.'%'; $params=[];
+    for($i=0;$i<4;$i++) array_push($params,$q,$term,$term,$term);
+    $where=[];
+    if($q!=='') {
+        $where[]='(source.name LIKE ? OR source.variety LIKE ? OR source.seed_number LIKE ? OR target.name LIKE ? OR target.variety LIKE ? OR target.seed_number LIKE ?)';
+        array_push($params,$term,$term,$term,$term,$term,$term);
+    }
+    if($type!==''){$where[]='cr.relationship_type=?';$params[]=$type;}
+    if($where)$sql.=' WHERE '.implode(' AND ',$where);
+    $sql.=' ORDER BY cr.relationship_type, seed_name, seed_number, cr.id';
+    $stmt=db()->prepare($sql);$stmt->execute($params);$rows=companion_finder_deduplicate($stmt->fetchAll(),$directionRules);
+    render('Companion Finder',function()use($rows,$q,$type,$types,$directionRules){?>
+    <h1>Companion Finder</h1><p class="text-muted">Search either plant in a stored relationship. Good Companion, Avoid, and Neutral are mutual; functional relationships retain and display their stored source → target direction.</p><form class="card card-body mb-3"><div class="row g-2"><div class="col-md-8"><label class="form-label" for="companion-search">Search plant name, variety, or seed number</label><input id="companion-search" class="form-control" name="q" value="<?=e($q)?>"></div><div class="col-md-4"><label class="form-label" for="companion-type">Relationship</label><select id="companion-type" class="form-select" name="type"><option value="">All relationship types</option><?php foreach($types as $t):?><option <?=$type===$t?'selected':''?>><?=e($t)?></option><?php endforeach?></select></div><div class="col-12"><button class="btn btn-success">Search</button> <a class="btn btn-outline-secondary" href="<?=e(url('companions'))?>">Clear</a></div></div></form>
+    <?php $current=null;foreach($rows as $row):if($current!==$row['relationship_type']):if($current!==null):?></tbody></table></div></section><?php endif;$current=$row['relationship_type'];$badge=$current==='Avoid'?'text-bg-danger':($current==='Good Companion'?'text-bg-success':'text-bg-secondary');?><section class="card mb-3"><div class="card-header"><span class="badge <?=e($badge)?>"><?=e($current)?></span></div><div class="table-responsive"><table class="table table-hover mb-0"><thead><tr><th>Seed Number</th><th>Seed Name</th><th>Category</th><th>Relationship</th><th>Direction</th><th>Reason / Notes</th><th>View Seed</th></tr></thead><tbody><?php endif;?><tr><td><?=e($row['seed_number'])?></td><td><?=e($row['seed_name'])?></td><td><?=e($row['category_name']?:'—')?></td><td><?=e($row['relationship_type'])?></td><td><?=e($row['direction'])?></td><td><?=e($row['notes']?:'—')?></td><td><a class="btn btn-sm btn-outline-success" href="<?=e(url('seeds/'.$row['seed_id']))?>">View Seed</a></td></tr><?php endforeach;if($current!==null):?></tbody></table></div></section><?php else:?><div class="alert alert-info">No companion relationships match. Add them from a seed edit page.</div><?php endif;});
 }
 
 function settings_page(): void
