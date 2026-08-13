@@ -90,39 +90,66 @@ function logout_action(): void
     redirect('login');
 }
 
+/**
+ * Dashboard category rules are centralized here because categories remain
+ * owner-managed names rather than typed records. Add normalized category names
+ * to these lists as category management expands. Medicinal also honors its
+ * dedicated seed flag; the other three metrics are category-only.
+ */
+function dashboard_category_count_rules(): array
+{
+    return [
+        'Food Crops' => ['category_names'=>['vegetable','food crop','food crops'], 'include_medicinal_flag'=>false],
+        'Herbs' => ['category_names'=>['herb'], 'include_medicinal_flag'=>false],
+        'Medicinal Plants' => ['category_names'=>['medicinal'], 'include_medicinal_flag'=>true],
+        'Flowers' => ['category_names'=>['flower'], 'include_medicinal_flag'=>false],
+    ];
+}
+
 function dashboard_page(): void
 {
     $month = (int)date('n');
+    $today=(int)date('md');
+    $counts = ['Total Seeds'=>(int)db()->query('SELECT COUNT(*) FROM seeds')->fetchColumn()];
+    foreach (dashboard_category_count_rules() as $label=>$rule) {
+        $placeholders=implode(',',array_fill(0,count($rule['category_names']),'?'));
+        $condition='LOWER(c.name) IN ('.$placeholders.')';
+        if ($rule['include_medicinal_flag']) $condition='(s.medicinal=1 OR '.$condition.')';
+        $stmt=db()->prepare('SELECT COUNT(*) FROM seeds s LEFT JOIN categories c ON c.id=s.category_id WHERE '.$condition);
+        $stmt->execute($rule['category_names']); $counts[$label]=(int)$stmt->fetchColumn();
+    }
     $stats = [
-        'Total Seeds' => 'SELECT COUNT(*) FROM seeds',
-        'Total Vegetables' => "SELECT COUNT(*) FROM seeds s JOIN categories c ON c.id=s.category_id WHERE c.name='Vegetable'",
-        'Total Herbs' => "SELECT COUNT(*) FROM seeds s JOIN categories c ON c.id=s.category_id WHERE c.name='Herb'",
-        'Total Flowers' => "SELECT COUNT(*) FROM seeds s JOIN categories c ON c.id=s.category_id WHERE c.name='Flower'",
-        'Total Medicinal Plants' => 'SELECT COUNT(*) FROM seeds WHERE medicinal=1',
-        'Total Pollinator Plants' => 'SELECT COUNT(*) FROM seeds WHERE pollinator_friendly=1',
-        'Total Container-Friendly Plants' => 'SELECT COUNT(*) FROM seeds WHERE container_friendly=1',
-        'Total Perennials' => 'SELECT COUNT(*) FROM seeds WHERE perennial=1',
+        'Pollinator-Friendly Plants' => 'SELECT COUNT(*) FROM seeds WHERE pollinator_friendly=1',
+        'Container-Friendly Plants' => 'SELECT COUNT(*) FROM seeds WHERE container_friendly=1',
+        'Perennials' => 'SELECT COUNT(*) FROM seeds WHERE perennial=1',
+        'Direct-Sow Seeds' => "SELECT COUNT(*) FROM seeds WHERE planting_method IN ('Direct Sow','Direct Sow or Transplant') OR direct_sow_start_month IS NOT NULL",
+        'Start-Indoors Seeds' => "SELECT COUNT(*) FROM seeds WHERE planting_method='Start Indoors' OR indoor_start_month IS NOT NULL",
     ];
-    $counts = [];
     foreach ($stats as $label => $sql) { $counts[$label] = (int)db()->query($sql)->fetchColumn(); }
     $stmt = db()->prepare('SELECT COUNT(*) FROM seeds s WHERE ' . plantable_in_month_sql('s'));
     $stmt->execute([$month,$month,$month,$month]);
     $counts['Seeds Plantable This Month'] = (int)$stmt->fetchColumn();
-    $stmt = db()->prepare('SELECT COUNT(*) FROM seeds WHERE planting_end_month IS NOT NULL AND planting_end_month < ? AND planting_start_month <= planting_end_month');
-    $stmt->execute([$month]);
-    $counts['Seeds Past Planting Window'] = (int)$stmt->fetchColumn();
+    $stmt = db()->prepare('SELECT COUNT(*) FROM seeds WHERE planting_start_month IS NOT NULL AND planting_start_day IS NOT NULL AND planting_end_month IS NOT NULL AND planting_end_day IS NOT NULL AND (((planting_start_month*100+planting_start_day) <= (planting_end_month*100+planting_end_day) AND ? > (planting_end_month*100+planting_end_day)) OR ((planting_start_month*100+planting_start_day) > (planting_end_month*100+planting_end_day) AND ? > (planting_end_month*100+planting_end_day) AND ? < (planting_start_month*100+planting_start_day)))');
+    $stmt->execute([$today,$today,$today]);
+    $counts['Seeds Past Their Recommended Planting Window'] = (int)$stmt->fetchColumn();
     render('Dashboard', function () use ($counts) { ?>
     <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4"><div><h1>Dashboard</h1><p class="text-muted mb-0">Zone <?= e(setting('zone','6B')) ?> · <?= e(setting('region','Southeast Michigan')) ?> · Last frost <?= e(setting_date_label('average_last_frost','05-05')) ?></p></div><div class="no-print"><a class="btn btn-success" href="<?= e(url('seeds/create')) ?>">Add Seed</a> <a class="btn btn-outline-success" href="<?= e(url('import')) ?>">Import</a></div></div>
-    <div class="row g-3"><?php foreach ($counts as $label => $count): ?><div class="col-6 col-lg-3"><div class="card card-metric shadow-sm h-100"><div class="card-body"><div class="text-muted small"><?= e($label) ?></div><div class="display-6 fw-bold"><?= e($count) ?></div></div></div></div><?php endforeach; ?></div>
+    <form action="<?= e(url('seeds')) ?>" class="card card-body mb-4"><label class="form-label" for="dashboard-search">Dashboard Quick Search</label><div class="input-group"><input id="dashboard-search" class="form-control" name="search" placeholder="Seed number, name, variety, category, family, use, companion, or notes"><button class="btn btn-success">Search Inventory</button></div></form>
+    <div class="row g-3 mb-4"><?php foreach ($counts as $label => $count): ?><div class="col-6 col-lg-3"><div class="card card-metric shadow-sm h-100"><div class="card-body"><div class="text-muted small"><?= e($label) ?></div><div class="display-6 fw-bold"><?= e($count) ?></div></div></div></div><?php endforeach; ?></div>
+    <div class="card card-body"><h2 class="h4">Quick Actions</h2><div class="d-flex flex-wrap gap-2"><a class="btn btn-outline-success" href="<?= e(url('seeds')) ?>">View All Seeds</a><a class="btn btn-outline-success" href="<?= e(url('seeds/create')) ?>">Add New Seed</a><a class="btn btn-outline-success" href="<?= e(url('calendar')) ?>">Planting Calendar</a><a class="btn btn-outline-success" href="<?= e(url('companions')) ?>">Companion Finder</a><a class="btn btn-outline-success" href="<?= e(url('import')) ?>">Import Seeds</a><a class="btn btn-outline-secondary" href="<?= e(url('export')) ?>">Export</a><a class="btn btn-outline-secondary" href="<?= e(url('print')) ?>">Print</a></div></div>
     <?php });
 }
 
 function seeds_page(): void
 {
     $filters = $_GET;
-    $seeds = seed_query($filters);
+    $filterErrors=seed_filter_validation_errors($filters);
+    $result=$filterErrors
+        ? ['rows'=>[],'total'=>0,'overall_total'=>(int)db()->query('SELECT COUNT(*) FROM seeds')->fetchColumn(),'page'=>0,'per_page'=>in_array((int)($filters['per_page']??25),[25,50,100,200],true)?(int)($filters['per_page']??25):25,'pages'=>0]
+        : seed_query($filters, true);
+    $seeds = $result['rows'];
     $ref = reference_data();
-    render('Seed Inventory', function () use ($seeds, $ref, $filters) { include BASE_PATH . '/app/templates/seeds_index.php'; });
+    render('Seed Inventory', function () use ($seeds, $ref, $filters, $result, $filterErrors) { include BASE_PATH . '/app/templates/seeds_index.php'; });
 }
 
 function seed_form_page(?int $id): void
