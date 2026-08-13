@@ -1142,14 +1142,33 @@ FLUSH PRIVILEGES;
 SQL
 ```
 
-## Phase 1 verification additions
+## Phase 1 verification status
 
-### Non-database checks completed during implementation
+### Completed checks
 
-The implementation review ran PHP lint over `app`, `public`, and `scripts`, `git diff --check`, and targeted PHP/static tests for exact CSV/XLSX Seed Number preservation, header trimming/mapping, strict integers and Plantable Months, real/cross-year month-day ranges, canonical duplicate Use/companion IDs, failed-form checkbox state, perennial reconciliation, companion comparison identity, friendly history formatting, no-op history guards, import error isolation, writable-storage resolution, and duplication transaction/savepoint guards. These are code-level checks only, not proof of persisted MySQL behavior.
+The implementation review ran PHP lint over `app`, `public`, and `scripts`, `git diff --check`, and targeted PHP/static tests for exact CSV/XLSX Seed Number preservation, header trimming/mapping, strict integers and Plantable Months, real/cross-year month-day ranges, canonical duplicate Use/companion IDs, failed-form checkbox state, perennial reconciliation, companion comparison identity, friendly history formatting, no-op history guards, import error isolation, writable-storage resolution, and duplication transaction/savepoint guards.
 
-### Isolated database/VPS verification still required
+Separately, Phase 1 isolated VPS/database verification passed and the owner’s Phase 1 live smoke test passed. The recorded result does not establish that every item in this document’s broader regression checklist—such as every form action, import path, security case, fresh-schema path, or responsive state—was part of those live runs.
 
-Apply the migration to a restored non-production database and run the full CRUD workflow. Persist and reload a Seed Number containing leading/trailing spaces and symbols—`  BIN-A/7 #!?  `—and verify it remains byte-for-byte unchanged. Verify all new and existing fields survive save/edit/reload; exact and duplicate Seed Numbers persist; all four form actions behave correctly; Uses, six-row companions, and every storage field persist; lookup names import; invalid rows do not persist; location search covers box/container/envelope/row/slot/notes; meaningful history is stored without no-op/derived duplicates; empty Detail states contain no bare units; and fresh schema installation succeeds.
+The checklist above remains useful for future deployment regression runs, but it is no longer a list of outstanding Phase 1 acceptance work.
 
-Also inject failures during import and every duplication stage to prove rollback behavior and generic user messages. Exercise CSV and both inline/shared-string XLSX files, configured/default/temp upload locations, perennial-status update compatibility, mobile form/detail rendering, CSRF-protected Delete, and cross-year ranges. Do not use the production database for these tests.
+# Phase 2 dashboard, inventory, search, and filters
+
+Run `php tests/phase2_static.php`, PHP lint across every PHP file, and `git diff --check` before database/browser testing.
+
+With an isolated MySQL database containing records that deliberately overlap Uses and companions:
+
+1. Verify each of the twelve dashboard cards against direct SQL counts, including a normal-year and a cross-year planting window at the current date. Confirm Food Crops/Herbs/Flowers use category data, Medicinal accepts its flag/category, and planting methods/ranges drive the two method counts.
+2. Search partial mixed-case fragments unique to Seed Number, name, variety, category, family, plant type, companion name/number/variety, Use, and notes. A seed matching several companion/Use rows must appear once. Submit Dashboard Quick Search and confirm the identical inventory result/query value.
+3. Exercise Category, Plant Family, Status, Plantable Month, Plant Type, Planting Method, source/brand, Packet Year, location, companion, and every Yes/No flag/capability separately. Location must match box, container, envelope, row, slot, and storage notes.
+4. Select multiple Uses and confirm all selected Uses are required. Combine filters for container-friendly herbs, medicinal perennials, July planting, a direct-sow planting range, source, location, and companion. Confirm all controls retain values.
+5. Test reusable `MM-DD` Start and Last Planting Date boundaries, including leap day and cross-year records. Bypass the browser pattern check or submit a crafted request with an invalid/nonexistent boundary such as `02-30`; confirm the entered value remains visible, a clear validation error identifies the boundary, no seed query/results are shown, and filtered export/print actions are unavailable until the error is corrected.
+6. Click **Clear All / Reset** and confirm the URL and every control return to defaults.
+7. Test every sort header and the sort controls in both directions. Confirm search, every filter, multiple Uses, rows per page, and the current query survive sorting.
+8. Insert at least 205 matching seeds. Verify pages and 25/50/100/200 Rows Per Page use server-side result windows; confirm previous/next/page links preserve all state and an out-of-range page is clamped.
+9. Verify an empty library displays the first-seed empty-state message. Then add records and verify a no-match combination displays the distinct filtered-results message and reset link. Both cases show `0–0 of 0` and `Page 0 of 0`; the empty-state message—not the shared numeric context—identifies whether the library itself is empty or filters returned no matches. Also verify first, middle, and last populated pages show the correct X–Y of Z and Page N of M values.
+10. At phone width, confirm cards expose major seed details and usable View/Edit/Duplicate/Delete controls without relying on the desktop table.
+11. From desktop and mobile results, run View and Edit; POST Duplicate and Delete with valid CSRF tokens. Confirm GET mutation attempts return 405 and invalid tokens return 419. Confirm exact/duplicate Seed Numbers, Uses, six companions, Plantable Months, reusable ranges, history, and locations retain all Phase 1 behavior.
+12. Verify filtered CSV and print actions retain the active inventory query. Confirm no claim of Phase 4 full export/backup behavior is implied.
+
+These Phase 2 browser and database scenarios remain pending and require an authenticated configured application and representative MySQL fixtures; Phase 2 static source checks do not prove them. This pending status does not reopen the recorded Phase 1 isolated VPS/database pass or the owner’s Phase 1 live smoke-test pass, and it does not expand the scope proven by those runs.
