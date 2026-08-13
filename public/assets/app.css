@@ -21,3 +21,4 @@ body { min-height: 100vh; }
   a { color: #000; text-decoration: none; }
   .page-break { page-break-before: always; }
 }
+.month-grid,.flag-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:.65rem}.form-actions{z-index:10}.card dl{margin-bottom:0}@media(max-width:575.98px){.sticky-bottom{position:static!important}.form-actions .btn{width:100%}}

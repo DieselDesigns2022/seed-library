@@ -371,29 +371,27 @@ Expected:
    | Field | Value |
    | --- | --- |
    | Seed Number | `TOM-001-A!` |
-   | Name | `Tomato` |
+   | Seed Name | `Tomato` |
    | Variety | `Black Cherry` |
    | Category | `Vegetable` |
    | Plant Family | `Solanaceae` |
-   | Status | `Active` |
+   | Seed Status | `Active` |
    | Plant Type | `Fruit vegetable` |
    | Planting Method | `Start Indoors` |
-   | Start Month | `4` |
-   | Start Day | `15` |
-   | End Month | `7` |
-   | End Day | `20` |
-   | Germination Min | `5` |
-   | Germination Max | `10` |
-   | Days to Maturity | `75` |
-   | Sun | `Full sun` |
-   | Water | `Even moisture` |
-   | Soil | `Rich, well-drained` |
-   | Spacing | `24-36 in` |
-   | Sowing Depth | `1/4 in` |
+   | Start Planting Date | `April 15` |
+   | Last Recommended Planting Date | `July 20` |
+   | Germination Days — Minimum | `5` |
+   | Germination Days — Maximum | `10` |
+   | Harvest/Maturity Days | `75` |
+   | Sun Requirements | `Full sun` |
+   | Water Needs | `Even moisture` |
+   | Soil Preference | `Rich, well-drained` |
+   | Plant Spacing | `24-36 in` |
+   | Planting Depth | `1/4 in` |
    | Plant Height | `5-7 ft` |
-   | Seed Source | `Test Seed Co.` |
+   | Seed Source/Brand | `Test Seed Co.` |
    | Packet Year | `2026` |
-   | Quantity | `25 seeds` |
+   | Quantity Notes | `25 seeds` |
    | Storage Box | `Box A` |
    | Container | `Tin 1` |
    | Envelope | `Envelope 3` |
@@ -404,17 +402,18 @@ Expected:
 4. Check these boxes:
    - Container Friendly
    - Pollinator Friendly
-   - Trellis Needed
+   - Trellis/Support Needed
 5. Select uses such as:
    - Culinary
    - Seed Saving
-6. Click **Save Seed**.
+6. Click **Save**.
 
 Expected:
 
 - You are redirected to the seed detail page.
 - The seed number displays exactly as `TOM-001-A!`.
-- The planting window displays as `Apr 15 – Jul 20`.
+- Start Planting Date displays as `Apr 15`.
+- Last Recommended Planting Date displays as `Jul 20`.
 - Storage, uses, flags, and notes are visible.
 
 ### Verify directly in database
@@ -432,16 +431,16 @@ Expected: one row with `TOM-001-A!` exactly as entered.
 1. Open the `Tomato / Black Cherry` seed detail page.
 2. Click **Edit**.
 3. Change:
-   - Quantity: `20 seeds`
+   - Quantity Notes: `20 seeds`
    - Slot: `S2`
    - Notes: `Edited test tomato seed.`
 4. Do **not** change the seed number.
-5. Click **Save Seed**.
+5. Click **Save**.
 
 Expected:
 
 - You return to the seed detail page.
-- Quantity now displays `20 seeds`.
+- Quantity Notes displays `20 seeds`.
 - Storage slot now displays `S2`.
 - Notes display the edited text.
 - Seed number remains exactly `TOM-001-A!`.
@@ -454,23 +453,53 @@ mysql -u seed_library_test -p seed_library_test -e "SELECT s.seed_number, s.quan
 
 ---
 
-## 12. Test duplicating a seed
+## 12. Test all Add/Edit form actions
+
+These browser/database checks remain required on the isolated test environment. Use a temporary record so each action can be verified independently.
+
+### Save
+
+1. Open Add Seed, complete all six required fields, and click **Save**.
+2. Expected: the seed is saved and the browser redirects to that seed's Detail page.
+
+### Save and Add Another
+
+1. Open Add Seed and enter a distinct temporary seed, including obvious text in optional fields.
+2. Click **Save and Add Another**.
+3. Expected: the current seed is saved and the browser redirects to a clean Add Seed form.
+4. Confirm the previously entered Seed Number, Seed Name, optional text, Plantable Months, Uses, storage, and companion values are not populated as a new record.
+
+### Save and Duplicate
+
+1. Open Add or Edit, make a recognizable change, and click **Save and Duplicate**.
+2. Expected: the source is saved first; a duplicate is created with the exact same Seed Number; and the browser redirects to the duplicate Edit page.
+3. Confirm the duplicate Seed Name is the saved source name followed by ` (Copy)` and that copied location, Uses, and companions are present.
+4. In a controlled failure-injection test, make duplicate creation fail after the source save. Expected: the source remains saved, no partial duplicate remains, the owner is redirected to the source Detail page, and the warning says the seed was saved but its duplicate could not be created.
+
+### Cancel
+
+1. On Add Seed, enter data without saving and click **Cancel**. Expected: the browser returns to Seed Inventory and no seed is created.
+2. On Edit Seed, change data without saving and click **Cancel**. Expected: the browser returns to the existing Seed Detail page and the submitted changes are not saved.
+
+---
+
+## 13. Test duplicating a seed
 
 1. Open the `Tomato / Black Cherry` seed detail page.
 2. Click **Duplicate**.
 3. Expected: you are redirected to an edit form for the copied seed.
-4. Confirm the copy has a seed number similar to `TOM-001-A!-copy`.
+4. Confirm the copy retains the exact Seed Number `TOM-001-A!`.
 5. Change the copy to:
    - Seed Number: `TOM-002-B#`
    - Variety: `Black Cherry Copy Test`
-6. Click **Save Seed**.
+6. Click **Save**.
 
 Expected:
 
 - The duplicated seed saves successfully.
 - The original `TOM-001-A!` still exists.
 - The new `TOM-002-B#` exists.
-- No automatic renumbering occurs beyond the explicit duplicate helper suffix before manual edit.
+- The duplicate initially retained `TOM-001-A!`; only the owner’s manual edit changed it.
 
 Verify in database:
 
@@ -480,7 +509,7 @@ mysql -u seed_library_test -p seed_library_test -e "SELECT seed_number, name, va
 
 ---
 
-## 13. Test deleting a seed
+## 14. Test deleting a seed
 
 Use the duplicated seed for this test so the original remains available.
 
@@ -504,7 +533,7 @@ Expected: only `TOM-001-A!` is returned.
 
 ---
 
-## 14. Test search and filters
+## 15. Test search and filters
 
 First add a second seed to make filters meaningful.
 
@@ -514,17 +543,15 @@ First add a second seed to make filters meaningful.
    | Field | Value |
    | --- | --- |
    | Seed Number | `BAS-001` |
-   | Name | `Basil` |
+   | Seed Name | `Basil` |
    | Variety | `Genovese` |
    | Category | `Herb` |
    | Plant Family | `Lamiaceae` |
-   | Status | `Active` |
+   | Seed Status | `Active` |
    | Plant Type | `Annual herb` |
    | Planting Method | `Direct Sow or Transplant` |
-   | Start Month | `5` |
-   | Start Day | `10` |
-   | End Month | `8` |
-   | End Day | `15` |
+   | Start Planting Date | `May 10` |
+   | Last Recommended Planting Date | `August 15` |
    | Packet Year | `2026` |
    | Storage Box | `Box B` |
 
@@ -574,7 +601,7 @@ Now test filters from **Seed Inventory**:
 
 ---
 
-## 15. Test the planting calendar
+## 16. Test the planting calendar
 
 1. Go to **Planting Calendar**.
 2. Select `April`.
@@ -594,7 +621,7 @@ The calendar is year-independent. It uses stored month/day windows and displays 
 
 ---
 
-## 16. Test the companion finder
+## 17. Test the companion finder
 
 Create a companion relationship:
 
@@ -604,7 +631,7 @@ Create a companion relationship:
    - Companion: Basil
    - Type: `Good Companion`
    - Notes: `Classic tomato companion.`
-4. Click **Save Seed**.
+4. Click **Save**.
 
 Now test the finder:
 
@@ -626,15 +653,15 @@ mysql -u seed_library_test -p seed_library_test -e "SELECT cr.relationship_type,
 
 ---
 
-## 17. Test CSV import
+## 18. Test CSV import
 
 Create a test CSV file:
 
 ```bash
 cat > /tmp/seed-import-test.csv <<'CSV'
-seed_number,name,variety,plant_type,planting_method,planting_start_month,planting_start_day,planting_end_month,planting_end_day,packet_year,seed_source,container_friendly,pollinator_friendly,notes
-LET-001,Lettuce,Buttercrunch,Leaf vegetable,Direct Sow,3,20,5,30,2026,CSV Test Source,1,0,Imported from CSV
-RAD-001,Radish,French Breakfast,Root vegetable,Direct Sow,4,1,6,15,2026,CSV Test Source,1,0,Imported from CSV
+seed_number,name,variety,category,plant_type,planting_method,planting_start_month,planting_start_day,planting_end_month,planting_end_day,packet_year,seed_source,container_friendly,pollinator_friendly,notes
+LET-001,Lettuce,Buttercrunch,Vegetable,Leaf vegetable,Direct Sow,3,20,5,30,2026,CSV Test Source,1,0,Imported from CSV
+RAD-001,Radish,French Breakfast,Vegetable,Root vegetable,Direct Sow,4,1,6,15,2026,CSV Test Source,1,0,Imported from CSV
 CSV
 ```
 
@@ -646,6 +673,7 @@ Import through the UI:
    - `seed_number`
    - `name`
    - `variety`
+   - `category` → `category_id`
    - `plant_type`
    - `planting_method`
    - `planting_start_month`
@@ -685,8 +713,8 @@ Expected: summary shows skipped duplicates rather than creating updates.
 
 ```bash
 cat > /tmp/seed-import-update.csv <<'CSV'
-seed_number,name,variety,notes
-LET-001,Lettuce,Buttercrunch,Updated via duplicate import
+seed_number,name,variety,category,planting_method,planting_start_month,planting_start_day,planting_end_month,planting_end_day,notes
+LET-001,Lettuce,Buttercrunch,Vegetable,Direct Sow,3,20,5,30,Updated via duplicate import
 CSV
 ```
 
@@ -704,7 +732,7 @@ mysql -u seed_library_test -p seed_library_test -e "SELECT seed_number, notes FR
 
 ---
 
-## 18. Test XLSX import
+## 19. Test XLSX import
 
 XLSX import does not require Composer dependencies in the current implementation. It requires PHP `zip` and `SimpleXML`/XML extensions.
 
@@ -731,9 +759,9 @@ from openpyxl import Workbook
 wb = Workbook()
 ws = wb.active
 ws.title = 'Seeds'
-ws.append(['seed_number','name','variety','plant_type','planting_method','planting_start_month','planting_start_day','planting_end_month','planting_end_day','packet_year','seed_source','notes'])
-ws.append(['PEA-001','Pea','Sugar Snap','Pod vegetable','Direct Sow',3,15,5,30,2026,'XLSX Test Source','Imported from XLSX'])
-ws.append(['DIL-001','Dill','Bouquet','Annual herb','Direct Sow',4,15,7,15,2026,'XLSX Test Source','Imported from XLSX'])
+ws.append(['seed_number','name','variety','category','plant_type','planting_method','planting_start_month','planting_start_day','planting_end_month','planting_end_day','packet_year','seed_source','notes'])
+ws.append(['PEA-001','Pea','Sugar Snap','Vegetable','Pod vegetable','Direct Sow',3,15,5,30,2026,'XLSX Test Source','Imported from XLSX'])
+ws.append(['DIL-001','Dill','Bouquet','Herb','Annual herb','Direct Sow',4,15,7,15,2026,'XLSX Test Source','Imported from XLSX'])
 wb.save('/tmp/seed-import-test.xlsx')
 print('/tmp/seed-import-test.xlsx')
 PY
@@ -767,7 +795,7 @@ mysql -u seed_library_test -p seed_library_test -e "SELECT seed_number, name, va
 
 ---
 
-## 19. Test CSV export
+## 20. Test CSV export
 
 1. Go to **Tools → Export**.
 2. Choose `All Seeds`.
@@ -789,7 +817,7 @@ head -20 /tmp/seed-library-export.csv
 
 ---
 
-## 20. Test XLSX export
+## 21. Test XLSX export
 
 XLSX export does not require Composer dependencies in the current implementation. It requires PHP `zip`.
 
@@ -830,7 +858,7 @@ PY
 
 ---
 
-## 21. Test print reports
+## 22. Test print reports
 
 1. Go to **Tools → Print Reports** or visit:
 
@@ -863,7 +891,7 @@ Expected:
 
 ---
 
-## 22. Test settings and management pages
+## 23. Test settings and management pages
 
 ### Settings
 
@@ -894,7 +922,7 @@ Expected: each management page can add and delete records.
 
 ---
 
-## 23. Full regression checklist
+## 24. Full regression checklist
 
 Use this checklist before considering a deployment ready:
 
@@ -921,7 +949,7 @@ Use this checklist before considering a deployment ready:
 
 ---
 
-## 24. Common errors and how to fix them
+## 25. Common errors and how to fix them
 
 ### `SQLSTATE[HY000] [1045] Access denied for user`
 
@@ -1055,9 +1083,9 @@ php scripts/create_admin.php "Test Admin" test-admin@example.com 'StrongTestPass
 
 ### Import uploads fail due to permissions
 
-Cause: the web server cannot write to `storage/imports` or `storage/exports`.
+Cause: no configured, project, or system-temporary import directory is writable (or export storage is not writable for an export operation).
 
-Fix for local testing:
+For imports, optionally configure an absolute writable `app.imports_path`; otherwise make project storage writable. The importer will also try `sys_get_temp_dir()/seed-library-imports`. Fix project storage for local testing with:
 
 ```bash
 chmod -R u+rwX storage
@@ -1088,7 +1116,7 @@ http://127.0.0.1:8090/login
 
 ---
 
-## 25. Cleanup after testing
+## 26. Cleanup after testing
 
 To remove test data while keeping schema:
 
@@ -1113,3 +1141,15 @@ DROP USER IF EXISTS 'seed_library_test'@'localhost';
 FLUSH PRIVILEGES;
 SQL
 ```
+
+## Phase 1 verification additions
+
+### Non-database checks completed during implementation
+
+The implementation review ran PHP lint over `app`, `public`, and `scripts`, `git diff --check`, and targeted PHP/static tests for exact CSV/XLSX Seed Number preservation, header trimming/mapping, strict integers and Plantable Months, real/cross-year month-day ranges, canonical duplicate Use/companion IDs, failed-form checkbox state, perennial reconciliation, companion comparison identity, friendly history formatting, no-op history guards, import error isolation, writable-storage resolution, and duplication transaction/savepoint guards. These are code-level checks only, not proof of persisted MySQL behavior.
+
+### Isolated database/VPS verification still required
+
+Apply the migration to a restored non-production database and run the full CRUD workflow. Persist and reload a Seed Number containing leading/trailing spaces and symbols—`  BIN-A/7 #!?  `—and verify it remains byte-for-byte unchanged. Verify all new and existing fields survive save/edit/reload; exact and duplicate Seed Numbers persist; all four form actions behave correctly; Uses, six-row companions, and every storage field persist; lookup names import; invalid rows do not persist; location search covers box/container/envelope/row/slot/notes; meaningful history is stored without no-op/derived duplicates; empty Detail states contain no bare units; and fresh schema installation succeeds.
+
+Also inject failures during import and every duplication stage to prove rollback behavior and generic user messages. Exercise CSV and both inline/shared-string XLSX files, configured/default/temp upload locations, perennial-status update compatibility, mobile form/detail rendering, CSRF-protected Delete, and cross-year ranges. Do not use the production database for these tests.
