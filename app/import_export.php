@@ -1,6 +1,37 @@
 <?php
 declare(strict_types=1);
 
+function import_storage_path(): string
+{
+    $configured = trim((string)config('app.imports_path', ''));
+    $candidates = array_values(array_unique(array_filter([$configured, BASE_PATH . '/storage/imports', sys_get_temp_dir() . '/seed-library-imports'])));
+    foreach ($candidates as $directory) {
+        if (!is_dir($directory) && !@mkdir($directory, 0750, true) && !is_dir($directory)) { continue; }
+        if (is_writable($directory)) { return rtrim($directory, DIRECTORY_SEPARATOR); }
+    }
+    throw new RuntimeException('No writable import storage directory is available. Configure app.imports_path or grant write access to storage/imports.');
+}
+
+function default_import_column(string $header): string
+{
+    $key = strtolower(trim(preg_replace('/\s+/', ' ', str_replace(['_','-'], ' ', $header))));
+    $map = ['seed number'=>'seed_number','seed #'=>'seed_number','seed name'=>'name','plant name'=>'name','variety'=>'variety','category'=>'category_id','plant family'=>'plant_family_id','family'=>'plant_family_id','status'=>'status_id','source'=>'seed_source','seed source'=>'seed_source','seed source/brand'=>'seed_source','packet year'=>'packet_year'];
+    if (isset($map[$key])) return $map[$key];
+    $candidate = strtolower(trim(preg_replace('/[^a-z0-9]+/i','_',$header),'_'));
+    return in_array($candidate,seed_columns(),true) ? $candidate : '';
+}
+
+function resolve_import_lookup(string $column, mixed $value): ?int
+{
+    if ($value === null || trim((string)$value) === '') return null;
+    $table = ['category_id'=>'categories','plant_family_id'=>'plant_families','status_id'=>'statuses'][$column] ?? null;
+    if (!$table) return nullable_int($value);
+    if (ctype_digit(trim((string)$value)) && record_exists($table,(int)$value)) return (int)$value;
+    $stmt=db()->prepare("SELECT id FROM $table WHERE LOWER(name)=LOWER(?)"); $stmt->execute([trim((string)$value)]); $id=$stmt->fetchColumn();
+    if ($id===false) throw new RuntimeException(ucwords(str_replace('_id','',$column)).' “'.trim((string)$value).'” was not found.');
+    return (int)$id;
+}
+
 function parse_csv_file(string $path): array
 {
     $handle = fopen($path, 'r');
@@ -24,7 +55,7 @@ function xlsx_column_index(string $cellRef): int
 function xlsx_cell_value(SimpleXMLElement $cell, array $shared): string
 {
     $type = (string)$cell['t'];
-    if ($type === 'inlineStr') { return trim((string)($cell->is->t ?? '')); }
+    if ($type === 'inlineStr') { return (string)($cell->is->t ?? ''); }
     $value = (string)($cell->v ?? '');
     if ($type === 's') { return $shared[(int)$value] ?? ''; }
     if ($type === 'b') { return $value === '1' ? '1' : '0'; }
@@ -42,7 +73,7 @@ function parse_xlsx_file(string $path): array
     if ($sharedXml) {
         $xml = simplexml_load_string($sharedXml, 'SimpleXMLElement', LIBXML_NONET);
         if (!$xml) { throw new RuntimeException('Invalid XLSX shared strings.'); }
-        foreach ($xml->si as $si) { $shared[] = trim((string)($si->t ?? '')); }
+        foreach ($xml->si as $si) { $shared[] = (string)($si->t ?? ''); }
     }
     $sheetXml = $zip->getFromName('xl/worksheets/sheet1.xml');
     $zip->close();
@@ -64,21 +95,33 @@ function parse_xlsx_file(string $path): array
     return ['headers'=>$headers,'rows'=>$rows];
 }
 
+function reconcile_import_perennial(array $payload, ?string $existingStatus = null): array
+{
+    $status=array_key_exists('perennial_status',$payload) ? $payload['perennial_status'] : $existingStatus;
+    if ($status!==null && $status!=='') $payload['perennial']=$status==='Perennial'?1:0;
+    return $payload;
+}
+
 function normalize_import_payload(array $payload): array
 {
     $normalized = [];
     foreach (seed_columns() as $column) {
         if (!array_key_exists($column, $payload)) { continue; }
-        $value = is_string($payload[$column]) ? trim($payload[$column]) : $payload[$column];
-        if (in_array($column, ['container_friendly','pollinator_friendly','medicinal','perennial','frost_tolerant','heat_tolerant','trellis_needed'], true)) {
+        $rawValue=$payload[$column];
+        $value = $column==='seed_number' ? $rawValue : (is_string($rawValue) ? trim($rawValue) : $rawValue);
+        if ($column==='plantable_months') {
+            $normalized[$column]=normalize_plantable_months($value);
+        } elseif (in_array($column, seed_boolean_columns(), true)) {
             $normalized[$column] = in_array(strtolower((string)$value), ['1','yes','true','y','on'], true) ? 1 : 0;
-        } elseif (str_ends_with($column, '_id') || in_array($column, ['days_to_germination_min','days_to_germination_max','days_to_maturity','planting_start_month','planting_start_day','planting_end_month','planting_end_day','indoor_start_weeks_before_frost','transplant_weeks_after_frost','succession_days','packet_year','expiration_year'], true)) {
-            $normalized[$column] = $value === '' || $value === null ? null : (int)$value;
+        } elseif (in_array($column, ['category_id','plant_family_id','status_id'], true)) {
+            $normalized[$column] = resolve_import_lookup($column, $value);
+        } elseif (in_array($column, seed_integer_columns(), true)) {
+            $normalized[$column] = seed_nullable_int($value, ucwords(str_replace('_', ' ', $column)));
         } else {
             $normalized[$column] = $value === '' ? null : $value;
         }
     }
-    return $normalized;
+    return reconcile_import_perennial($normalized);
 }
 
 function import_page(): void
@@ -92,8 +135,10 @@ function import_page(): void
             if (($upload['size'] ?? 0) > 10 * 1024 * 1024) { flash('danger','Import file must be 10 MB or smaller.'); redirect('import'); }
             $name = basename($upload['name']); $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
             if (!in_array($ext, ['csv','xlsx'], true)) { flash('danger','Only CSV and XLSX are supported.'); redirect('import'); }
-            $target = BASE_PATH . '/storage/imports/' . bin2hex(random_bytes(8)) . '.' . $ext;
-            if (!move_uploaded_file($upload['tmp_name'], $target)) { flash('danger','Could not save uploaded file. Check storage/imports permissions.'); redirect('import'); }
+            try { $directory=import_storage_path(); }
+            catch (RuntimeException $e) { flash('danger','Imports are temporarily unavailable because no writable upload location is available. Contact the administrator.'); redirect('import'); }
+            $target=$directory.'/'.bin2hex(random_bytes(8)).'.'.$ext;
+            if (!move_uploaded_file($upload['tmp_name'], $target)) { flash('danger','The uploaded file could not be saved. Please try again or contact the administrator.'); redirect('import'); }
             $_SESSION['import_file'] = $target; $_SESSION['import_ext'] = $ext;
             redirect('import?step=map');
         }
@@ -105,30 +150,40 @@ function import_page(): void
             if (!in_array($duplicateAction, ['skip','update','import','manual'], true)) { $duplicateAction = 'skip'; }
             $summary = ['imported'=>0,'updated'=>0,'skipped'=>0,'manual_review'=>0,'errors'=>[]];
             $_SESSION['manual_review_rows'] = [];
-            $existingStmt = db()->prepare('SELECT id FROM seeds WHERE seed_number=? LIMIT 1');
-            db()->beginTransaction();
+            $pdo=null;
             try {
+                $pdo=db();
+                $existingStmt=$pdo->prepare('SELECT id, perennial_status FROM seeds WHERE seed_number=? LIMIT 1');
+                $pdo->beginTransaction();
                 foreach ($parsed['rows'] as $index => $row) {
                     $payload = [];
                     foreach ($mapping as $source => $dest) { if ($dest !== '') { $payload[$dest] = $row[$source] ?? null; } }
-                    $payload = normalize_import_payload($payload);
                     $rowNumber = $index + 2;
+                    try { $payload = normalize_import_payload($payload); }
+                    catch (PDOException $e) { throw $e; }
+                    catch (RuntimeException $e) { $summary['errors'][] = 'Row ' . $rowNumber . ': ' . $e->getMessage(); $summary['skipped']++; continue; }
                     $base = array_fill_keys(seed_columns(), null);
-                    foreach (['container_friendly','pollinator_friendly','medicinal','perennial','frost_tolerant','heat_tolerant','trellis_needed'] as $flag) { $base[$flag] = 0; }
+                    foreach (seed_boolean_columns() as $flag) { $base[$flag] = 0; }
                     $validationData = array_merge($base, $payload);
                     $errors = validate_seed($validationData);
                     if ($errors) { $summary['errors'][] = 'Row ' . $rowNumber . ': ' . implode(' ', $errors); $summary['skipped']++; continue; }
-                    $existingStmt->execute([$payload['seed_number']]); $existingId = $existingStmt->fetchColumn();
+                    $existingStmt->execute([$payload['seed_number']]); $existing=$existingStmt->fetch(); $existingId=$existing['id']??false;
                     if ($existingId && $duplicateAction === 'skip') { $summary['skipped']++; continue; }
                     if ($existingId && $duplicateAction === 'manual') { $summary['manual_review']++; $_SESSION['manual_review_rows'][] = ['row'=>$rowNumber, 'seed_number'=>$payload['seed_number'], 'data'=>$payload]; continue; }
+                    if ($existingId && $duplicateAction==='update') $payload=reconcile_import_perennial($payload,$existing['perennial_status']??null);
                     $columns = array_values(array_intersect(array_keys($payload), seed_columns()));
                     $data = array_map(fn($c)=>$payload[$c], $columns);
                     if ($existingId && $duplicateAction === 'update') { $assign=implode(', ', array_map(fn($c)=>"$c=?", $columns)); db()->prepare("UPDATE seeds SET $assign WHERE id=?")->execute([...$data, $existingId]); $summary['updated']++; }
                     else { $ph=implode(',', array_fill(0,count($columns),'?')); db()->prepare('INSERT INTO seeds ('.implode(',',$columns).") VALUES ($ph)")->execute($data); $summary['imported']++; }
                 }
-                db()->commit();
+                $pdo->commit();
+            } catch (PDOException $e) {
+                if ($pdo instanceof PDO && $pdo->inTransaction()) $pdo->rollBack();
+                error_log((string)$e);
+                $summary['errors'][]='The import could not be completed because of a database error. No rows from this import were saved.';
+                $_SESSION['import_summary']=$summary; flash('danger','Import failed. No rows were saved.'); redirect('import?step=summary');
             } catch (Throwable $e) {
-                db()->rollBack();
+                if ($pdo instanceof PDO && $pdo->inTransaction()) $pdo->rollBack();
                 throw $e;
             }
             $_SESSION['import_summary'] = $summary; flash('success','Import complete.'); redirect('import?step=summary');
@@ -137,7 +192,7 @@ function import_page(): void
     $step = $_GET['step'] ?? 'upload';
     render('Import Seeds', function () use ($step) {
         if ($step === 'map' && !empty($_SESSION['import_file'])) { $parsed = $_SESSION['import_ext'] === 'xlsx' ? parse_xlsx_file($_SESSION['import_file']) : parse_csv_file($_SESSION['import_file']); $columns = seed_columns(); ?>
-        <h1>Map Columns</h1><form method="post" class="card card-body"><?= csrf_field() ?><input type="hidden" name="step" value="import"><div class="table-responsive"><table class="table"><thead><tr><th>Uploaded Column</th><th>Maps To</th><th>Preview</th></tr></thead><tbody><?php foreach($parsed['headers'] as $h): ?><tr><td><?= e($h) ?></td><td><select class="form-select" name="map[<?= e($h) ?>]"><option value="">Ignore</option><?php foreach($columns as $c): ?><option value="<?= e($c) ?>" <?= strtolower($h)===strtolower($c)?'selected':'' ?>><?= e($c) ?></option><?php endforeach; ?></select></td><td><?= e($parsed['rows'][0][$h] ?? '') ?></td></tr><?php endforeach; ?></tbody></table></div><label class="form-label">Duplicate seed numbers</label><select class="form-select mb-3" name="duplicate_action"><option value="skip">Skip</option><option value="update">Update Existing</option><option value="import">Import Anyway</option><option value="manual">Manual Review</option></select><button class="btn btn-success">Validate & Import</button></form>
+        <h1>Map Columns</h1><form method="post" class="card card-body"><?= csrf_field() ?><input type="hidden" name="step" value="import"><div class="table-responsive"><table class="table"><thead><tr><th>Uploaded Column</th><th>Maps To</th><th>Preview</th></tr></thead><tbody><?php foreach($parsed['headers'] as $h): ?><tr><td><?= e($h) ?></td><td><select class="form-select" name="map[<?= e($h) ?>]"><option value="">Ignore</option><?php foreach($columns as $c): ?><option value="<?= e($c) ?>" <?= default_import_column($h)===$c?'selected':'' ?>><?= e($c) ?></option><?php endforeach; ?></select></td><td><?= e($parsed['rows'][0][$h] ?? '') ?></td></tr><?php endforeach; ?></tbody></table></div><label class="form-label">Duplicate seed numbers</label><select class="form-select mb-3" name="duplicate_action"><option value="skip">Skip</option><option value="update">Update Existing</option><option value="import">Import Anyway</option><option value="manual">Manual Review</option></select><button class="btn btn-success">Validate & Import</button></form>
         <?php } elseif ($step === 'summary') { $s = $_SESSION['import_summary'] ?? []; $manual = $_SESSION['manual_review_rows'] ?? []; ?><h1>Import Summary</h1><div class="card card-body"><pre><?= e(json_encode($s, JSON_PRETTY_PRINT)) ?></pre><?php if($manual): ?><h2 class="h5">Manual review rows</h2><div class="table-responsive"><table class="table"><thead><tr><th>Row</th><th>Seed #</th><th>Mapped data</th></tr></thead><tbody><?php foreach($manual as $r): ?><tr><td><?= e($r['row']) ?></td><td><?= e($r['seed_number']) ?></td><td><code><?= e(json_encode($r['data'])) ?></code></td></tr><?php endforeach; ?></tbody></table></div><?php endif; ?></div><?php }
         else { ?><h1>Import Seeds</h1><form method="post" enctype="multipart/form-data" class="card card-body col-lg-6"><?= csrf_field() ?><input type="hidden" name="step" value="upload"><p class="text-muted">Upload CSV or XLSX, preview columns, map fields, choose duplicate handling, then import. Maximum upload size: 10 MB.</p><input class="form-control mb-3" type="file" name="seed_file" accept=".csv,.xlsx" required><button class="btn btn-success">Upload</button></form><?php }
     });
