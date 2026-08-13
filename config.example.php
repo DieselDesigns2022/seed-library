@@ -6,6 +6,9 @@ return [
         'session_name' => 'seed_library_session',
         'timezone' => 'America/Detroit',
         'debug' => false,
+        // Optional absolute writable directory tried before storage/imports.
+        // If both are unusable, the app tries a seed-library directory under the system temp path.
+        // 'imports_path' => '/var/lib/seed-library/imports',
     ],
     'db' => [
         'host' => '127.0.0.1',

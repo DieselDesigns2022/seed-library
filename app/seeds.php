@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 function seed_query(array $filters = []): array
 {
-    $sql = 'SELECT s.*, c.name AS category_name, pf.name AS family_name, st.name AS status_name, l.storage_box, l.container, l.envelope, l.row_label, l.slot
+    $sql = 'SELECT s.*, c.name AS category_name, pf.name AS family_name, st.name AS status_name, l.storage_box, l.container, l.envelope, l.row_label, l.slot, l.notes AS location_notes
             FROM seeds s
             LEFT JOIN categories c ON c.id = s.category_id
             LEFT JOIN plant_families pf ON pf.id = s.plant_family_id
@@ -19,16 +19,17 @@ function seed_query(array $filters = []): array
     foreach (['category_id' => 's.category_id', 'plant_family_id' => 's.plant_family_id', 'status_id' => 's.status_id', 'packet_year' => 's.packet_year'] as $key => $column) {
         if (($filters[$key] ?? '') !== '') { $where[] = "$column = ?"; $params[] = $filters[$key]; }
     }
-    foreach (['plant_type' => 's.plant_type', 'planting_method' => 's.planting_method', 'seed_source' => 's.seed_source', 'storage_box' => 'l.storage_box'] as $key => $column) {
+    foreach (['plant_type' => 's.plant_type', 'planting_method' => 's.planting_method', 'seed_source' => 's.seed_source'] as $key => $column) {
         if (($filters[$key] ?? '') !== '') { $where[] = "$column LIKE ?"; $params[] = '%' . $filters[$key] . '%'; }
     }
-    foreach (['container_friendly','pollinator_friendly','medicinal','perennial','frost_tolerant','heat_tolerant','trellis_needed'] as $flag) {
+    if (($filters['storage_box'] ?? '') !== '') { $where[] = 'CONCAT_WS(\' \', l.storage_box, l.container, l.envelope, l.row_label, l.slot, l.notes) LIKE ?'; $params[] = '%' . $filters['storage_box'] . '%'; }
+    foreach (seed_boolean_columns() as $flag) {
         if (($filters[$flag] ?? '') !== '') { $where[] = "s.$flag = ?"; $params[] = (int)$filters[$flag]; }
     }
     if (($filters['plantable_month'] ?? '') !== '') {
         $where[] = plantable_in_month_sql('s');
         $m = (int)$filters['plantable_month'];
-        array_push($params, $m, $m, $m);
+        array_push($params, $m, $m, $m, $m);
     }
     if ($where) { $sql .= ' WHERE ' . implode(' AND ', $where); }
     $allowedSorts = ['seed_number','name','category_name','family_name','packet_year','status_name','planting_start_month','storage_box'];
@@ -70,89 +71,181 @@ function seed_history_for(int $id): array
     return $stmt->fetchAll();
 }
 
+function seed_nullable_int(mixed $value, string $label): ?int
+{
+    if ($value === null || $value === '') return null;
+    if (is_int($value)) return $value;
+    if (!is_string($value) || !preg_match('/^-?\d+$/D',$value)) throw new RuntimeException("$label must be a whole number.");
+    return (int)$value;
+}
+
+function failed_seed_form_state(array $stored, array $submitted): array
+{
+    $state=array_merge($stored,$submitted);
+    foreach (['container_friendly','trellis_needed','frost_tolerant','heat_tolerant','drought_tolerant','pollinator_friendly','medicinal'] as $flag) $state[$flag]=isset($submitted[$flag])?1:0;
+    return $state;
+}
+
+
+function normalize_plantable_months(mixed $months): ?string
+{
+    if ($months===null || $months==='' || $months===[]) return null;
+    $values=is_array($months)?$months:explode(',',(string)$months); $normalized=[];
+    foreach ($values as $month) {
+        if (!is_int($month) && (!is_string($month) || !preg_match('/^\d+$/D',$month))) throw new RuntimeException('Each Plantable Month must be a whole-number month from 1 through 12.');
+        $number=(int)$month; if ($number<1 || $number>12) throw new RuntimeException('Each Plantable Month must be between 1 and 12.');
+        if (isset($normalized[$number])) throw new RuntimeException('The same Plantable Month cannot be selected more than once.');
+        $normalized[$number]=true;
+    }
+    return implode(',',array_keys($normalized));
+}
+
 function seed_payload(): array
 {
     $data = [];
     foreach (seed_columns() as $column) {
-        if (in_array($column, ['container_friendly','pollinator_friendly','medicinal','perennial','frost_tolerant','heat_tolerant','trellis_needed'], true)) {
+        if ($column === 'plantable_months') { continue; }
+        if (in_array($column, seed_boolean_columns(), true)) {
             $data[$column] = bool_value($column);
-        } elseif (str_ends_with($column, '_id') || in_array($column, ['days_to_germination_min','days_to_germination_max','days_to_maturity','planting_start_month','planting_start_day','planting_end_month','planting_end_day','indoor_start_weeks_before_frost','transplant_weeks_after_frost','succession_days','packet_year','expiration_year'], true)) {
-            $data[$column] = nullable_int($_POST[$column] ?? null);
+        } elseif (in_array($column, seed_integer_columns(), true)) {
+            $data[$column] = seed_nullable_int($_POST[$column] ?? null, ucwords(str_replace('_', ' ', preg_replace('/_id$/', '', $column))));
         } else {
             $value = trim((string)($_POST[$column] ?? ''));
             $data[$column] = $value === '' ? null : $value;
         }
     }
-    $data['seed_number'] = trim((string)($_POST['seed_number'] ?? ''));
+    $data['plantable_months']=normalize_plantable_months($_POST['plantable_months']??[]);
+    if ($data['perennial_status'] !== null) { $data['perennial'] = $data['perennial_status'] === 'Perennial' ? 1 : 0; }
+    $data['seed_number'] = (string)($_POST['seed_number'] ?? '');
     $data['name'] = trim((string)($_POST['name'] ?? ''));
     return $data;
 }
 
-function validate_seed(array $data): array
+function has_duplicate_use_ids(array $uses): bool
+{
+    $keys=array_map(fn($id)=>ctype_digit((string)$id)?(string)(int)$id:'invalid:'.(string)$id,$uses); return count($keys)!==count(array_unique($keys));
+}
+
+function has_duplicate_companion_pairs(array $companions): bool
+{
+    $seen=[];
+    foreach ($companions as $row) {
+        $id=(string)($row['companion_seed_id']??''); $type=(string)($row['relationship_type']??'');
+        if ($id==='' && $type==='') continue;
+        $key=(ctype_digit($id)?(string)(int)$id:'invalid:'.$id).'|'.$type; if (isset($seen[$key])) return true; $seen[$key]=true;
+    }
+    return false;
+}
+
+function validate_seed(array $data, array $uses = [], array $companions = [], ?int $seedId = null): array
 {
     $errors = [];
-    if (trim((string)($data['seed_number'] ?? '')) === '') { $errors[] = 'Seed number is required and is preserved exactly as entered.'; }
-    if (mb_strlen((string)$data['seed_number']) > 100) { $errors[] = 'Seed number must be 100 characters or fewer.'; }
-    if (trim((string)($data['name'] ?? '')) === '') { $errors[] = 'Seed name is required.'; }
-    if (mb_strlen((string)$data['name']) > 190) { $errors[] = 'Seed name must be 190 characters or fewer.'; }
+    if (trim((string)($data['seed_number'] ?? '')) === '') { $errors[] = 'Seed Number is required.'; }
+    if (mb_strlen((string)($data['seed_number'] ?? '')) > 100) { $errors[] = 'Seed Number must be 100 characters or fewer.'; }
+    if (trim((string)($data['name'] ?? '')) === '') { $errors[] = 'Seed Name is required.'; }
+    if (mb_strlen((string)($data['name'] ?? '')) > 190) { $errors[] = 'Seed Name must be 190 characters or fewer.'; }
+    $varcharLimits = [
+        'variety'=>['Variety',190], 'plant_type'=>['Plant Type',80], 'sun_requirements'=>['Sun Requirements',120],
+        'water_requirements'=>['Water Needs',120], 'soil_requirements'=>['Soil Preference',190], 'spacing'=>['Plant Spacing',120],
+        'sowing_depth'=>['Planting Depth',80], 'ideal_soil_temperature'=>['Ideal Soil Temperature',80], 'row_spacing'=>['Row Spacing',120],
+        'thin_to_spacing'=>['Thin-To Spacing',120], 'minimum_container_size'=>['Minimum Container Size',120], 'plant_height'=>['Plant Height',80],
+        'seed_source'=>['Seed Source/Brand',190], 'quantity'=>['Quantity Notes',100],
+    ];
+    foreach ($varcharLimits as $key=>[$label,$limit]) if (mb_strlen((string)($data[$key]??''))>$limit) $errors[]="$label must be $limit characters or fewer.";
+    foreach ([['category_id','categories','Category',true],['plant_family_id','plant_families','Plant Family',false],['status_id','statuses','Status',false]] as [$key,$table,$label,$required]) {
+        if ($required && empty($data[$key])) { $errors[] = "$label is required."; }
+        elseif (!empty($data[$key]) && !record_exists($table, (int)$data[$key])) { $errors[] = "$label selection is invalid."; }
+    }
+    $methods = ['Direct Sow','Start Indoors','Transplant','Direct Sow or Transplant'];
+    if (empty($data['planting_method'])) { $errors[] = 'Planting Method is required.'; }
+    elseif (!in_array($data['planting_method'], $methods, true)) { $errors[] = 'Planting Method is invalid.'; }
+    $pairs = [
+        ['planting_start_month','planting_start_day','Start Planting Date',true],['planting_end_month','planting_end_day','Last Recommended Planting Date',true],
+        ['indoor_start_month','indoor_start_day','Indoor Start range start',false],['indoor_end_month','indoor_end_day','Indoor Start range end',false],
+        ['direct_sow_start_month','direct_sow_start_day','Direct Sow range start',false],['direct_sow_end_month','direct_sow_end_day','Direct Sow range end',false],
+        ['transplant_start_month','transplant_start_day','Transplant range start',false],['transplant_end_month','transplant_end_day','Transplant range end',false],
+    ];
+    foreach ($pairs as [$mk,$dk,$label,$required]) {
+        $m=$data[$mk]??null; $d=$data[$dk]??null;
+        if ($required && ($m===null || $d===null)) { $errors[]="$label is required."; continue; }
+        if (($m===null) xor ($d===null)) { $errors[]="$label needs both month and day."; }
+        elseif ($m!==null && !valid_month_day((int)$m,(int)$d)) { $errors[]="$label is not a real calendar date."; }
+    }
+    foreach (['indoor'=>['indoor_start_month','indoor_start_day','indoor_end_month','indoor_end_day','Indoor Start Range'], 'direct_sow'=>['direct_sow_start_month','direct_sow_start_day','direct_sow_end_month','direct_sow_end_day','Direct Sow Range'], 'transplant'=>['transplant_start_month','transplant_start_day','transplant_end_month','transplant_end_day','Transplant Range']] as [$sm,$sd,$em,$ed,$label]) {
+        $startComplete=($data[$sm]??null)!==null && ($data[$sd]??null)!==null; $endComplete=($data[$em]??null)!==null && ($data[$ed]??null)!==null;
+        $any=($data[$sm]??null)!==null || ($data[$sd]??null)!==null || ($data[$em]??null)!==null || ($data[$ed]??null)!==null;
+        if ($any && (!$startComplete || !$endComplete)) $errors[]="$label requires both complete start and end dates.";
+    }
+    $months = $data['plantable_months'] === null || $data['plantable_months'] === '' ? [] : explode(',', (string)$data['plantable_months']);
+    if (count($months) !== count(array_unique($months)) || array_filter($months, fn($m) => !ctype_digit($m) || (int)$m < 1 || (int)$m > 12)) { $errors[]='Plantable Months contains an invalid month.'; }
+    foreach (seed_integer_columns() as $key) { if (!str_ends_with($key,'_id') && ($data[$key]??null)!==null && $data[$key] < 0) $errors[] = ucwords(str_replace('_',' ',$key)).' cannot be negative.'; }
+    if (($data['days_to_germination_min']??null)!==null && ($data['days_to_germination_max']??null)!==null && $data['days_to_germination_min']>$data['days_to_germination_max']) $errors[]='Germination minimum cannot exceed germination maximum.';
+    $maxYear=(int)date('Y')+25; foreach(['packet_year','expiration_year'] as $key) if (($data[$key]??null)!==null && ($data[$key]<1900 || $data[$key]>$maxYear)) $errors[]=ucwords(str_replace('_',' ',$key))." must be between 1900 and $maxYear.";
+    if (!valid_date_string($data['purchase_date']??null)) $errors[]='Purchase Date must be a real date.';
+    if (($data['perennial_status']??null)!==null && !in_array($data['perennial_status'],['Annual','Biennial','Perennial'],true)) $errors[]='Perennial/Biennial Status is invalid.';
+    if (has_duplicate_use_ids($uses)) $errors[]='The same Garden Use cannot be selected more than once.';
+    foreach ($uses as $useId) if (!ctype_digit((string)$useId) || !record_exists('uses',(int)$useId)) $errors[]='A selected Garden Use is invalid.';
+    $types=['Good Companion','Avoid','Neutral','Pest Deterrent','Trap Crop','Support Plant','Pollinator Support'];
+    if (has_duplicate_companion_pairs($companions)) $errors[]='The same companion and relationship type cannot be entered more than once.';
+    foreach ($companions as $i=>$row) {
+        $cid=$row['companion_seed_id']??''; $type=$row['relationship_type']??'';
+        if ($cid==='' && $type==='') continue;
+        if (!ctype_digit((string)$cid) || !record_exists('seeds',(int)$cid)) $errors[]='Companion row '.($i+1).' references an invalid seed.';
+        if ($seedId && (int)$cid===$seedId) $errors[]='A seed cannot be its own companion.';
+        if (!in_array($type,$types,true)) $errors[]='Companion row '.($i+1).' has an invalid relationship type.';
+    }
+    foreach (['storage_box'=>['Storage Box',120],'container'=>['Container',120],'envelope'=>['Envelope',120],'row_label'=>['Row',80],'slot'=>['Slot',80]] as $field=>[$label,$limit])
+        if (mb_strlen(trim((string)($_POST[$field]??'')))>$limit) $errors[]="$label must be $limit characters or fewer.";
+    return array_values(array_unique($errors));
+}
 
-    foreach ([['category_id', 'categories'], ['plant_family_id', 'plant_families'], ['status_id', 'statuses']] as [$key, $table]) {
-        if (!empty($data[$key]) && !record_exists($table, (int)$data[$key])) {
-            $errors[] = ucfirst(str_replace('_', ' ', $key)) . ' is invalid.';
-        }
-    }
+function history_value(string $key, mixed $value): mixed
+{
+    $tables=['category_id'=>'categories','plant_family_id'=>'plant_families','status_id'=>'statuses'];
+    if ($value === null || !isset($tables[$key])) return $value;
+    $stmt=db()->prepare('SELECT name FROM '.$tables[$key].' WHERE id=?'); $stmt->execute([(int)$value]);
+    return $stmt->fetchColumn() ?: $value;
+}
 
-    $allowedMethods = ['Direct Sow','Start Indoors','Transplant','Direct Sow or Transplant'];
-    if ($data['planting_method'] !== null && !in_array($data['planting_method'], $allowedMethods, true)) {
-        $errors[] = 'Planting method is invalid.';
+function companion_history_summary(array $rows): array
+{
+    $summary=[];
+    foreach ($rows as $row) {
+        $id=(int)($row['companion_seed_id']??0); $type=trim((string)($row['relationship_type']??''));
+        if (!$id || $type==='') continue;
+        $name=trim((string)($row['name']??'Companion')); $number=trim((string)($row['seed_number']??'')); $notes=trim((string)($row['notes']??''));
+        $identity=$id.'|'.$type.'|'.$notes;
+        $summary[$identity]=$name.($number!==''?' #'.$number:'').' — '.$type.($notes!==''?' ('.$notes.')':'');
     }
+    ksort($summary,SORT_NATURAL); return $summary;
+}
 
-    foreach ([['planting_start_month','planting_start_day', 'Planting start'], ['planting_end_month','planting_end_day', 'Planting end']] as [$m, $d, $label]) {
-        if (($data[$m] && !$data[$d]) || (!$data[$m] && $data[$d])) { $errors[] = $label . ' date needs both month and day.'; }
-        if ($data[$m] !== null && ($data[$m] < 1 || $data[$m] > 12)) { $errors[] = $label . ' month must be 1-12.'; }
-        if ($data[$d] !== null && ($data[$d] < 1 || $data[$d] > 31)) { $errors[] = $label . ' day must be 1-31.'; }
-        if ($data[$m] && $data[$d] && !valid_month_day((int)$data[$m], (int)$data[$d])) { $errors[] = $label . ' date is not a real calendar date.'; }
-    }
-
-    foreach (['days_to_germination_min','days_to_germination_max','days_to_maturity','indoor_start_weeks_before_frost','transplant_weeks_after_frost','succession_days'] as $key) {
-        if ($data[$key] !== null && $data[$key] < 0) { $errors[] = ucfirst(str_replace('_', ' ', $key)) . ' cannot be negative.'; }
-    }
-    if ($data['days_to_germination_min'] !== null && $data['days_to_germination_max'] !== null && $data['days_to_germination_min'] > $data['days_to_germination_max']) {
-        $errors[] = 'Germination minimum cannot be greater than germination maximum.';
-    }
-    $currentYear = (int)date('Y');
-    foreach (['packet_year','expiration_year'] as $key) {
-        if ($data[$key] !== null && ($data[$key] < 1900 || $data[$key] > $currentYear + 25)) {
-            $errors[] = ucfirst(str_replace('_', ' ', $key)) . ' must be between 1900 and ' . ($currentYear + 25) . '.';
-        }
-    }
-    if (!valid_date_string($data['purchase_date'])) { $errors[] = 'Purchase date must be a valid YYYY-MM-DD date.'; }
-    return $errors;
+function history_friendly_value(string $key, mixed $value): mixed
+{
+    if ($value===null || $value==='') return $value;
+    if (in_array($key,seed_boolean_columns(),true)) return (int)$value===1?'Yes':'No';
+    if ($key==='plantable_months') return implode(', ',array_map(fn($m)=>month_name((int)$m),array_filter(explode(',',(string)$value))));
+    return history_value($key,$value);
 }
 
 function seed_save(?int $id): int
 {
-    $data = seed_payload();
-    $errors = validate_seed($data);
-    if ($errors) { throw new RuntimeException(implode(' ', $errors)); }
-    $columns = array_keys($data);
-    if ($id) {
-        $assignments = implode(', ', array_map(fn($c) => "$c = ?", $columns));
-        $stmt = db()->prepare("UPDATE seeds SET $assignments WHERE id = ?");
-        $stmt->execute([...array_values($data), $id]);
-        $seedId = $id;
-        log_history($seedId, 'updated', $data);
-    } else {
-        $placeholders = implode(', ', array_fill(0, count($columns), '?'));
-        $stmt = db()->prepare('INSERT INTO seeds (' . implode(', ', $columns) . ") VALUES ($placeholders)");
-        $stmt->execute(array_values($data));
-        $seedId = (int)db()->lastInsertId();
-        log_history($seedId, 'created', $data);
-    }
-    save_location($seedId);
-    save_seed_uses($seedId, $_POST['uses'] ?? []);
-    save_companion_rows($seedId, $_POST['companions'] ?? []);
-    return $seedId;
+    $data=seed_payload(); $uses=is_array($_POST['uses']??null)?$_POST['uses']:[]; $companions=is_array($_POST['companions']??null)?$_POST['companions']:[];
+    $errors=validate_seed($data,$uses,$companions,$id); if ($errors) throw new RuntimeException(implode(' ', $errors));
+    $before=$id ? seed_find($id) : null; $beforeUses=$id ? array_column(seed_uses_for($id),'name') : []; $beforeCompanions=$id ? seed_companions_for($id) : [];
+    db()->beginTransaction();
+    try {
+        $columns=array_keys($data);
+        if ($id) { $assign=implode(', ',array_map(fn($c)=>"$c = ?",$columns)); db()->prepare("UPDATE seeds SET $assign WHERE id = ?")->execute([...array_values($data),$id]); $seedId=$id; }
+        else { $ph=implode(',',array_fill(0,count($columns),'?')); db()->prepare('INSERT INTO seeds ('.implode(',',$columns).") VALUES ($ph)")->execute(array_values($data)); $seedId=(int)db()->lastInsertId(); }
+        save_location($seedId); save_seed_uses($seedId,$uses); save_companion_rows($seedId,$companions);
+        $after=seed_find($seedId); $changes=[];
+        if ($before) foreach (array_merge(array_values(array_diff(seed_columns(),['perennial'])),['storage_box','container','envelope','row_label','slot','location_notes']) as $key) if (($before[$key]??null)!==($after[$key]??null)) $changes[$key]=['before'=>history_friendly_value($key,$before[$key]??null),'after'=>history_friendly_value($key,$after[$key]??null)];
+        $afterUses=array_column(seed_uses_for($seedId),'name'); sort($beforeUses); sort($afterUses); if ($before && $beforeUses!==$afterUses) $changes['uses']=['before'=>implode(', ',$beforeUses),'after'=>implode(', ',$afterUses)];
+        $beforeCompanionSummary=companion_history_summary($beforeCompanions); $afterCompanionSummary=companion_history_summary(seed_companions_for($seedId));
+        if ($before && $beforeCompanionSummary!==$afterCompanionSummary) $changes['companions']=['before'=>implode('; ',array_values($beforeCompanionSummary)),'after'=>implode('; ',array_values($afterCompanionSummary))];
+        if (!$id || $changes) log_history($seedId,$id?'updated':'created',$changes); db()->commit(); return $seedId;
+    } catch (Throwable $e) { db()->rollBack(); throw $e; }
 }
 
 function save_location(int $seedId): void
@@ -167,14 +260,14 @@ function save_location(int $seedId): void
 function save_seed_uses(int $seedId, array $uses): void
 {
     db()->prepare('DELETE FROM seed_uses WHERE seed_id=?')->execute([$seedId]);
-    $stmt = db()->prepare('INSERT IGNORE INTO seed_uses (seed_id, use_id) VALUES (?, ?)');
+    $stmt = db()->prepare('INSERT INTO seed_uses (seed_id, use_id) VALUES (?, ?)');
     foreach ($uses as $useId) { if ($useId !== '') { $stmt->execute([$seedId, (int)$useId]); } }
 }
 
 function save_companion_rows(int $seedId, array $rows): void
 {
     db()->prepare('DELETE FROM companion_relationships WHERE seed_id=?')->execute([$seedId]);
-    $stmt = db()->prepare('INSERT IGNORE INTO companion_relationships (seed_id, companion_seed_id, relationship_type, notes) VALUES (?, ?, ?, ?)');
+    $stmt = db()->prepare('INSERT INTO companion_relationships (seed_id, companion_seed_id, relationship_type, notes) VALUES (?, ?, ?, ?)');
     foreach ($rows as $row) {
         $companionId = (int)($row['companion_seed_id'] ?? 0);
         $type = $row['relationship_type'] ?? '';
@@ -186,24 +279,24 @@ function save_companion_rows(int $seedId, array $rows): void
 
 function duplicate_seed(int $id): int
 {
-    $seed = seed_find($id);
-    if (!$seed) { throw new RuntimeException('Seed not found.'); }
-    $data = array_intersect_key($seed, array_flip(seed_columns()));
-    // Preserve the physical seed label exactly. The user can edit it after duplication if desired.
-    $data['name'] = $data['name'] . ' (Copy)';
-    $columns = array_keys($data);
-    $stmt = db()->prepare('INSERT INTO seeds (' . implode(', ', $columns) . ') VALUES (' . implode(', ', array_fill(0, count($columns), '?')) . ')');
-    $stmt->execute(array_values($data));
-    $newId = (int)db()->lastInsertId();
-    $loc = ['storage_box','container','envelope','row_label','slot','location_notes'];
-    $_POST = array_merge($_POST, array_intersect_key($seed, array_flip($loc)));
-    save_location($newId);
-    $stmt = db()->prepare('INSERT INTO seed_uses (seed_id, use_id) SELECT ?, use_id FROM seed_uses WHERE seed_id=?');
-    $stmt->execute([$newId, $id]);
-    $stmt = db()->prepare('INSERT INTO companion_relationships (seed_id, companion_seed_id, relationship_type, notes) SELECT ?, companion_seed_id, relationship_type, notes FROM companion_relationships WHERE seed_id=?');
-    $stmt->execute([$newId, $id]);
-    log_history($newId, 'duplicated', ['source_seed_id' => $id]);
-    return $newId;
+    $pdo=db(); $ownsTransaction=!$pdo->inTransaction(); $savepoint='duplicate_seed';
+    if ($ownsTransaction) $pdo->beginTransaction(); else $pdo->exec("SAVEPOINT $savepoint");
+    try {
+        $seed=seed_find($id); if (!$seed) throw new RuntimeException('Seed not found.');
+        $data=array_intersect_key($seed,array_flip(seed_columns())); $data['name']=$data['name'].' (Copy)'; $columns=array_keys($data);
+        $stmt=$pdo->prepare('INSERT INTO seeds ('.implode(', ',$columns).') VALUES ('.implode(', ',array_fill(0,count($columns),'?')).')'); $stmt->execute(array_values($data));
+        $newId=(int)$pdo->lastInsertId();
+        $oldPost=$_POST; $_POST=array_merge($_POST,array_intersect_key($seed,array_flip(['storage_box','container','envelope','row_label','slot','location_notes'])));
+        try { save_location($newId); } finally { $_POST=$oldPost; }
+        $pdo->prepare('INSERT INTO seed_uses (seed_id, use_id) SELECT ?, use_id FROM seed_uses WHERE seed_id=?')->execute([$newId,$id]);
+        $pdo->prepare('INSERT INTO companion_relationships (seed_id, companion_seed_id, relationship_type, notes) SELECT ?, companion_seed_id, relationship_type, notes FROM companion_relationships WHERE seed_id=?')->execute([$newId,$id]);
+        log_history($newId,'duplicated',['source_seed_id'=>$id]);
+        if ($ownsTransaction) $pdo->commit(); else $pdo->exec("RELEASE SAVEPOINT $savepoint");
+        return $newId;
+    } catch (Throwable $e) {
+        if ($ownsTransaction && $pdo->inTransaction()) $pdo->rollBack(); elseif (!$ownsTransaction) $pdo->exec("ROLLBACK TO SAVEPOINT $savepoint");
+        throw $e;
+    }
 }
 
 function delete_seed(int $id): void

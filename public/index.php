@@ -31,7 +31,11 @@ function match_route(string $path): void
     if ($path === 'seeds/create') { seed_form_page(null); return; }
     if (preg_match('#^seeds/(\d+)$#', $path, $m)) { seed_detail_page((int)$m[1]); return; }
     if (preg_match('#^seeds/(\d+)/edit$#', $path, $m)) { seed_form_page((int)$m[1]); return; }
-    if (preg_match('#^seeds/(\d+)/duplicate$#', $path, $m)) { require_post(); verify_csrf(); $id = duplicate_seed((int)$m[1]); flash('success','Seed duplicated with the same physical seed number. Edit it only if you need a different label.'); redirect('seeds/' . $id . '/edit'); }
+    if (preg_match('#^seeds/(\d+)/duplicate$#', $path, $m)) {
+        require_post(); verify_csrf(); $sourceId=(int)$m[1];
+        try { $id=duplicate_seed($sourceId); flash('success','Seed duplicated with the same physical seed number. Edit it only if you need a different label.'); redirect('seeds/'.$id.'/edit'); }
+        catch (PDOException $e) { error_log((string)$e); flash('danger','The duplicate could not be created. The original seed was not changed.'); redirect('seeds/'.$sourceId); }
+    }
     if (preg_match('#^seeds/(\d+)/delete$#', $path, $m)) { require_post(); verify_csrf(); delete_seed((int)$m[1]); flash('success','Seed deleted.'); redirect('seeds'); }
     if ($path === 'calendar') { calendar_page(); return; }
     if ($path === 'companions') { companions_page(); return; }
@@ -102,7 +106,7 @@ function dashboard_page(): void
     $counts = [];
     foreach ($stats as $label => $sql) { $counts[$label] = (int)db()->query($sql)->fetchColumn(); }
     $stmt = db()->prepare('SELECT COUNT(*) FROM seeds s WHERE ' . plantable_in_month_sql('s'));
-    $stmt->execute([$month,$month,$month]);
+    $stmt->execute([$month,$month,$month,$month]);
     $counts['Seeds Plantable This Month'] = (int)$stmt->fetchColumn();
     $stmt = db()->prepare('SELECT COUNT(*) FROM seeds WHERE planting_end_month IS NOT NULL AND planting_end_month < ? AND planting_start_month <= planting_end_month');
     $stmt->execute([$month]);
@@ -127,13 +131,23 @@ function seed_form_page(?int $id): void
     if ($id && !$seed) { http_response_code(404); render('Seed Not Found', fn() => print '<h1>Seed not found</h1>'); return; }
     if (is_post()) {
         verify_csrf();
-        try { $saved = seed_save($id); flash('success', 'Seed saved.'); redirect('seeds/' . $saved); }
-        catch (RuntimeException $e) { flash('danger', $e->getMessage()); $seed = array_merge($seed ?: [], $_POST); }
+        try {
+            $saved=seed_save($id); $action=$_POST['save_action']??'save';
+            if ($action==='duplicate') {
+                try { $copy=duplicate_seed($saved); flash('success','Seed saved and duplicated.'); redirect('seeds/'.$copy.'/edit'); }
+                catch (Throwable $e) { error_log((string)$e); flash('warning','The seed was saved, but its duplicate could not be created.'); redirect('seeds/'.$saved); }
+            }
+            flash('success','Seed saved.'); if ($action==='add_another') redirect('seeds/create'); redirect('seeds/'.$saved);
+        } catch (PDOException $e) {
+            error_log((string)$e); flash('danger','The seed could not be saved. Please review the form and try again.'); $seed=failed_seed_form_state($seed?:[],$_POST);
+        } catch (RuntimeException $e) {
+            flash('danger',$e->getMessage()); $seed=failed_seed_form_state($seed?:[],$_POST);
+        }
     }
     $ref = reference_data();
     $allSeeds = db()->query('SELECT id, seed_number, name, variety FROM seeds ORDER BY name')->fetchAll();
-    $selectedUses = $id ? array_column(seed_uses_for($id), 'id') : [];
-    $companions = $id ? seed_companions_for($id) : [];
+    $selectedUses = is_post() ? array_map('intval', (array)($_POST['uses'] ?? [])) : ($id ? array_column(seed_uses_for($id), 'id') : []);
+    $companions = is_post() ? (array)($_POST['companions'] ?? []) : ($id ? seed_companions_for($id) : []);
     render($id ? 'Edit Seed' : 'Add Seed', function () use ($seed, $ref, $allSeeds, $selectedUses, $companions, $id) { include BASE_PATH . '/app/templates/seed_form.php'; });
 }
 
