@@ -171,4 +171,12 @@ Inventory provides a direct filtered CSV download and a filtered print view whil
 
 No Phase 2 schema or migration was required: the Phase 1 foreign keys, relationship primary keys, unique one-to-one location record, and existing seed indexes support the query design. Search deliberately uses correlated `EXISTS` clauses and pagination instead of adding speculative indexes before database query plans can be measured on a representative collection.
 
-Phase 2 PHP lint and source-level static checks have passed. Database-backed count/search/filter/sort/pagination checks and authenticated desktop/mobile browser verification are still pending.
+Phase 2 PHP lint and source-level static checks passed, and the Phase 2 live smoke test passed. The broader database-backed and authenticated desktop/mobile regression scenarios in `TESTING.md` remain separate verification work and are not implied by that smoke test.
+
+## Phase 3: garden planning
+
+The Planting Calendar supports every month, explicit Plantable Months, normal and cross-year planting windows, and filters for planting methods and useful plant groups. Inferred grouping is centralized in `calendar_group_rules()` / `calendar_group_matches()`: **Fall Crop** means an existing planting window or explicit month includes August–November; Flowers and Herbs use owner-managed category names; Medicinal uses either its category or existing flag.
+
+Companion relationships remain structured and validated, but the edit form now has dynamic Add/Remove controls without a fixed six-row limit. The finder resolves relationships stored from either side and visually separates every relationship type, especially Good Companion and Avoid. Good Companion, Avoid, and Neutral are symmetric. Pest Deterrent, Trap Crop, Support Plant, and Pollinator Support are directional: results preserve every distinct stored source → target direction. Finder rows are deduplicated by returned seed and relationship type while distinct notes and directions are merged.
+
+Existing databases should run `database/2026-08-13-phase-3-statuses.sql`. It only inserts missing practical statuses and never removes, renames, or disables custom statuses. Fresh installations receive the identical status set from `database/schema.sql`.

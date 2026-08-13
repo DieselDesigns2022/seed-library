@@ -1168,7 +1168,22 @@ With an isolated MySQL database containing records that deliberately overlap Use
 8. Insert at least 205 matching seeds. Verify pages and 25/50/100/200 Rows Per Page use server-side result windows; confirm previous/next/page links preserve all state and an out-of-range page is clamped.
 9. Verify an empty library displays the first-seed empty-state message. Then add records and verify a no-match combination displays the distinct filtered-results message and reset link. Both cases show `0–0 of 0` and `Page 0 of 0`; the empty-state message—not the shared numeric context—identifies whether the library itself is empty or filters returned no matches. Also verify first, middle, and last populated pages show the correct X–Y of Z and Page N of M values.
 10. At phone width, confirm cards expose major seed details and usable View/Edit/Duplicate/Delete controls without relying on the desktop table.
-11. From desktop and mobile results, run View and Edit; POST Duplicate and Delete with valid CSRF tokens. Confirm GET mutation attempts return 405 and invalid tokens return 419. Confirm exact/duplicate Seed Numbers, Uses, six companions, Plantable Months, reusable ranges, history, and locations retain all Phase 1 behavior.
+11. From desktop and mobile results, run View and Edit; POST Duplicate and Delete with valid CSRF tokens. Confirm GET mutation attempts return 405 and invalid tokens return 419. Confirm exact/duplicate Seed Numbers, Uses, unlimited companion relationships, Plantable Months, reusable ranges, history, and locations retain all established behavior.
 12. Verify filtered CSV and print actions retain the active inventory query. Confirm no claim of Phase 4 full export/backup behavior is implied.
 
-These Phase 2 browser and database scenarios remain pending and require an authenticated configured application and representative MySQL fixtures; Phase 2 static source checks do not prove them. This pending status does not reopen the recorded Phase 1 isolated VPS/database pass or the owner’s Phase 1 live smoke-test pass, and it does not expand the scope proven by those runs.
+The Phase 2 live smoke test passed. The broader database/browser scenarios above remain separate regression coverage and require an authenticated configured application with representative MySQL fixtures; the smoke test and static source checks do not prove every listed scenario. This pending status does not reopen the recorded Phase 1 isolated VPS/database pass or the owner’s Phase 1 live smoke-test pass, and it does not expand the scope proven by those runs.
+
+# Phase 3 verification
+
+Run static checks:
+
+```bash
+find app public scripts tests -name '*.php' -print0 | xargs -0 -n1 php -l
+php tests/phase2_static.php
+php tests/phase3_static.php
+git diff --check
+```
+
+Companion Finder direction rules: Good Companion, Avoid, and Neutral are symmetric. Pest Deterrent, Trap Crop, Support Plant, and Pollinator Support are directional and preserve each stored source → target direction. Reciprocal or multiple records must produce one row per returned seed and relationship type, with distinct notes and directional paths merged.
+
+Database/browser checks: apply the idempotent Phase 3 status migration twice and confirm custom statuses remain; test January through December, an explicit Plantable Months seed, and a Nov–Feb range; exercise every calendar group; save more than six companions, remove a middle row, reject self/invalid/duplicate pairs, then duplicate the seed and inspect history; search each endpoint by name/variety/number and verify unique, correctly categorized results and Good Companion/Avoid headings; change each practical status and confirm inventory filtering, detail display, and friendly history values.

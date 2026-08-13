@@ -167,7 +167,9 @@ INSERT INTO uses (name) VALUES
 ('Culinary'),('Medicinal'),('Pollinator'),('Cut Flower'),('Container'),('Seed Saving'),('Tea'),('Dye')
 ON DUPLICATE KEY UPDATE name = VALUES(name);
 INSERT INTO statuses (name, is_active) VALUES
-('Active',1),('Low Stock',1),('Expired',0),('Archived',0),('Wish List',1)
+('Active',1),('Low Stock',1),('Expired',0),('Archived',0),('Wish List',1),
+('In Seed Bank',1),('Started Indoors',1),('Direct Sown',1),('Transplanted',1),('Growing',1),
+('Harvested',1),('Failed Germination',1),('Out of Stock',1),('Need to Buy More',1),('Save for Next Year',1)
 ON DUPLICATE KEY UPDATE name = VALUES(name);
 INSERT INTO settings (setting_key, setting_value) VALUES
 ('zone','6B'),('zip','48239'),('region','Southeast Michigan'),('average_last_frost','05-05'),('average_first_frost','10-15')
