@@ -45,6 +45,7 @@ function match_route(string $path): void
     if ($path === 'print') { print_page(); return; }
     if ($path === 'backup') { backup_page(); return; }
     if ($path === 'settings') { settings_page(); return; }
+    if ($path === 'manage/storage') { storage_page(); return; }
     if (preg_match('#^manage/(categories|families|uses|statuses)$#', $path, $m)) { manage_page($m[1]); return; }
     http_response_code(404); render('Not Found', fn() => print '<h1>Not Found</h1>');
 }
@@ -147,7 +148,7 @@ function seeds_page(): void
     $filters = $_GET;
     $filterErrors=seed_filter_validation_errors($filters);
     $result=$filterErrors
-        ? ['rows'=>[],'total'=>0,'overall_total'=>(int)db()->query('SELECT COUNT(*) FROM seeds')->fetchColumn(),'page'=>0,'per_page'=>in_array((int)($filters['per_page']??25),[25,50,100,200],true)?(int)($filters['per_page']??25):25,'pages'=>0]
+        ? ['rows'=>[],'total'=>0,'overall_total'=>(int)db()->query('SELECT COUNT(*) FROM seeds')->fetchColumn(),'page'=>0,'per_page'=>in_array((int)($filters['per_page']??0),inventory_page_sizes(),true)?(int)$filters['per_page']:(int)setting_choice('rows_per_page',array_map('strval',inventory_page_sizes()),'25'),'pages'=>0]
         : seed_query($filters, true);
     $seeds = $result['rows'];
     $ref = reference_data();
@@ -340,44 +341,91 @@ function companions_page(): void
 
 function settings_page(): void
 {
+    require_owner();
     if (is_post()) {
         verify_csrf();
-        $values = [];
-        foreach(['zone','zip','region','average_last_frost','average_first_frost'] as $key) { $values[$key] = trim((string)($_POST[$key] ?? '')); }
-        $errors = [];
-        if ($values['zone'] === '') { $errors[] = 'Zone is required.'; }
-        if (!preg_match('/^\d{5}(-\d{4})?$/', $values['zip'])) { $errors[] = 'ZIP must be a valid US ZIP code.'; }
-        if ($values['region'] === '') { $errors[] = 'Region is required.'; }
-        foreach (['average_last_frost','average_first_frost'] as $key) { if (!valid_mmdd($values[$key])) { $errors[] = str_replace('_', ' ', $key) . ' must be a valid MM-DD date.'; } }
-        if ($errors) { flash('danger', implode(' ', $errors)); }
-        else { foreach($values as $key => $value) save_setting($key, $value); flash('success','Settings saved.'); redirect('settings'); }
+        $keys=['zone','zip','region','average_last_frost','average_first_frost','garden_notes','display_exact_dates','display_plantable_months','seed_number_order','default_inventory_sort','rows_per_page'];
+        $values=[]; foreach($keys as $key) $values[$key]=trim((string)($_POST[$key]??''));
+        $errors=[];
+        if(!preg_match('/^\d{1,2}[A-Z]?$/i',$values['zone'])) $errors[]='Growing Zone must be a number optionally followed by a letter (for example, 6B).';
+        if(!preg_match('/^\d{5}(-\d{4})?$/',$values['zip'])) $errors[]='ZIP must be a valid US ZIP code.';
+        if($values['region']===''||mb_strlen($values['region'])>190) $errors[]='Region is required and must be 190 characters or fewer.';
+        if(mb_strlen($values['garden_notes'])>10000) $errors[]='Garden Notes must be 10,000 characters or fewer.';
+        foreach(['average_last_frost','average_first_frost'] as $key) if(!valid_mmdd($values[$key])) $errors[]=ucwords(str_replace('_',' ',$key)).' must be a valid reusable MM-DD date.';
+        foreach(['display_exact_dates','display_plantable_months'] as $key) if(!in_array($values[$key],['0','1'],true)) $errors[]='Display choices must be Show or Hide.';
+        if(!in_array($values['seed_number_order'],['natural','lexicographic'],true)) $errors[]='Choose a supported Seed Number ordering.';
+        if(!in_array($values['default_inventory_sort'],inventory_sort_options(),true)) $errors[]='Choose a supported default inventory sort.';
+        if(!in_array($values['rows_per_page'],array_map('strval',inventory_page_sizes()),true)) $errors[]='Choose a supported Rows Per Page value.';
+        if($errors) flash('danger',implode(' ',$errors));
+        else { foreach($values as $key=>$value) save_setting($key,$value); flash('success','Settings saved.'); redirect('settings'); }
     }
-    render('Settings', function () { ?>
-    <h1>Settings</h1><form method="post" class="card card-body col-lg-6"><?= csrf_field() ?><?php foreach(['zone'=>'Zone','zip'=>'ZIP','region'=>'Region','average_last_frost'=>'Average Last Frost (MM-DD)','average_first_frost'=>'Average First Frost (MM-DD)'] as $key=>$label): ?><div class="mb-3"><label class="form-label"><?= e($label) ?></label><input class="form-control" name="<?= e($key) ?>" value="<?= e(setting($key)) ?>" required></div><?php endforeach; ?><button class="btn btn-success">Save Settings</button></form>
-    <?php });
+    render('Settings',function(){
+        $sortLabels=['Seed Number','Name','Variety','Category','Plant Family','Plant Type','Planting Method','Germination','Maturity','Seed Source','Start Date','Last Date','Packet Year','Storage Box','Status']; ?>
+    <div class="d-flex flex-wrap justify-content-between gap-2"><h1>Settings</h1><a class="btn btn-outline-danger align-self-start" href="<?=e(url('backup'))?>">Database Backup &amp; Restore</a></div>
+    <form method="post"><?=csrf_field()?><div class="row g-3"><div class="col-lg-6"><section class="card card-body h-100"><h2 class="h4">Garden Settings</h2><?php foreach(['zone'=>['Growing Zone','6B'],'zip'=>['ZIP Code','48239'],'region'=>['Region','Southeast Michigan'],'average_last_frost'=>['Average Last Frost (MM-DD)','05-05'],'average_first_frost'=>['Average First Frost (MM-DD)','10-15']] as $key=>[$label,$default]):?><div class="mb-3"><label class="form-label" for="setting-<?=e($key)?>"><?=e($label)?></label><input id="setting-<?=e($key)?>" class="form-control" name="<?=e($key)?>" value="<?=e(setting($key,$default))?>" required></div><?php endforeach?><label class="form-label" for="garden-notes">Garden Notes</label><textarea id="garden-notes" class="form-control" name="garden_notes" rows="5" maxlength="10000"><?=e(setting('garden_notes'))?></textarea></section></div>
+    <div class="col-lg-6"><section class="card card-body h-100"><h2 class="h4">Display Settings</h2><?php foreach(['display_exact_dates'=>['Exact-date display',['1'=>'Show month and day','0'=>'Show month only'],'1'],'display_plantable_months'=>['Plantable Months display',['1'=>'Show','0'=>'Hide'],'1'],'seed_number_order'=>['Seed Number ordering',['natural'=>'Natural numeric order','lexicographic'=>'Exact text order'],'natural']] as $key=>[$label,$options,$default]):?><div class="mb-3"><label class="form-label" for="setting-<?=e($key)?>"><?=e($label)?></label><select id="setting-<?=e($key)?>" class="form-select" name="<?=e($key)?>"><?php foreach($options as $value=>$text):?><option value="<?=e($value)?>" <?=setting_choice($key,array_keys($options),$default)===$value?'selected':''?>><?=e($text)?></option><?php endforeach?></select></div><?php endforeach?><div class="mb-3"><label class="form-label" for="default-sort">Default inventory sort</label><select id="default-sort" class="form-select" name="default_inventory_sort"><?php foreach(array_combine(inventory_sort_options(),$sortLabels) as $value=>$text):?><option value="<?=e($value)?>" <?=setting_choice('default_inventory_sort',inventory_sort_options(),'seed_number')===$value?'selected':''?>><?=e($text)?></option><?php endforeach?></select></div><div class="mb-3"><label class="form-label" for="rows-per-page">Rows Per Page</label><select id="rows-per-page" class="form-select" name="rows_per_page"><?php foreach(inventory_page_sizes() as $size):?><option value="<?=$size?>" <?=setting_choice('rows_per_page',array_map('strval',inventory_page_sizes()),'25')===(string)$size?'selected':''?>><?=$size?></option><?php endforeach?></select></div><p class="small text-muted">Valid URL sort and page-size choices continue to override these defaults.</p></section></div></div><button class="btn btn-success mt-3">Save Settings</button></form><?php
+    });
+}
+
+function storage_page(): void
+{
+    require_owner();
+    if(is_post()) {
+        verify_csrf();
+        try {
+            $seedId=nullable_int($_POST['seed_id']??null);
+            if(!$seedId||!record_exists('seeds',$seedId)) throw new RuntimeException('Choose an existing seed record.');
+            $limits=['storage_box'=>120,'container'=>120,'envelope'=>120,'row_label'=>80,'slot'=>80,'location_notes'=>10000];
+            foreach($limits as $key=>$limit) if(mb_strlen(trim((string)($_POST[$key]??'')))>$limit) throw new RuntimeException(ucwords(str_replace(['_','location notes'],[' ','Storage Notes'],$key))." is too long.");
+            $before=seed_find($seedId);
+            db()->beginTransaction();
+            try {
+                save_location($seedId);
+                $changes=storage_history_changes($before?:[],seed_find($seedId)?:[]);
+                if($changes) log_history($seedId,'updated',$changes);
+                db()->commit();
+            } catch(Throwable $e) { db()->rollBack(); throw $e; }
+            flash('success','Storage location saved. Seed Number was not changed.');
+        } catch(RuntimeException $e) { flash('danger',$e->getMessage()); }
+        redirect('manage/storage');
+    }
+    $rows=db()->query('SELECT s.id,s.seed_number,s.name,s.variety,l.storage_box,l.container,l.envelope,l.row_label,l.slot,l.notes AS location_notes FROM seeds s LEFT JOIN seed_locations l ON l.seed_id=s.id ORDER BY s.name,s.variety,s.id')->fetchAll();
+    render('Manage Storage Locations',function()use($rows){ ?>
+    <h1>Manage Storage Locations</h1><p class="text-muted">Edit each seed record’s physical Storage Box, Container, Envelope, Row, Slot, and Notes. Seed Number is shown only to identify the seed and is never treated as a storage field.</p>
+    <?php if(!$rows):?><div class="alert alert-info">There are no seed records yet. <a href="<?=e(url('seeds/create'))?>">Add a seed</a> before assigning a location.</div><?php else:?><div class="accordion" id="storage-list"><?php foreach($rows as $i=>$row):?><div class="accordion-item"><h2 class="accordion-header"><button class="accordion-button <?=$i?'collapsed':''?>" type="button" data-bs-toggle="collapse" data-bs-target="#storage-<?=$row['id']?>"><strong><?=e($row['name'])?></strong>&nbsp;<?=e($row['variety']?'— '.$row['variety']:'')?> <span class="ms-2 text-muted">Seed # <?=e($row['seed_number'])?></span></button></h2><div id="storage-<?=$row['id']?>" class="accordion-collapse collapse <?=$i===0?'show':''?>" data-bs-parent="#storage-list"><div class="accordion-body"><form method="post" class="row g-3"><?=csrf_field()?><input type="hidden" name="seed_id" value="<?=$row['id']?>"><?php foreach(['storage_box'=>['Storage Box',120],'container'=>['Container',120],'envelope'=>['Envelope',120],'row_label'=>['Row',80],'slot'=>['Slot',80]] as $key=>[$label,$max]):?><div class="col-sm-6 col-lg"><label class="form-label" for="<?=$key?>-<?=$row['id']?>"><?=e($label)?></label><input id="<?=$key?>-<?=$row['id']?>" class="form-control" name="<?=$key?>" maxlength="<?=$max?>" value="<?=e($row[$key])?>"></div><?php endforeach?><div class="col-12"><label class="form-label" for="location-notes-<?=$row['id']?>">Storage Notes</label><textarea id="location-notes-<?=$row['id']?>" class="form-control" name="location_notes" maxlength="10000"><?=e($row['location_notes'])?></textarea></div><div class="col-12"><button class="btn btn-success">Save Location</button></div></form></div></div></div><?php endforeach?></div><?php endif?><?php
+    });
 }
 
 function manage_page(string $section): void
 {
+    require_owner();
     $map = ['categories'=>['categories','Category'], 'families'=>['plant_families','Plant Family'], 'uses'=>['uses','Use'], 'statuses'=>['statuses','Status']];
     [$table,$label] = $map[$section];
     if (is_post()) {
         verify_csrf();
         try {
             if (isset($_POST['delete_id'])) {
-                db()->prepare("DELETE FROM $table WHERE id=?")->execute([(int)$_POST['delete_id']]);
+                $id=(int)$_POST['delete_id'];
+                if(!record_exists($table,$id)) throw new RuntimeException("$label was not found.");
+                $reference=match($section){'categories'=>'SELECT COUNT(*) FROM seeds WHERE category_id=?','families'=>'SELECT COUNT(*) FROM seeds WHERE plant_family_id=?','statuses'=>'SELECT COUNT(*) FROM seeds WHERE status_id=?','uses'=>'SELECT COUNT(*) FROM seed_uses WHERE use_id=?'};
+                $check=db()->prepare($reference); $check->execute([$id]); $count=(int)$check->fetchColumn();
+                if($count>0) throw new RuntimeException("$label is used by $count seed record".($count===1?'':'s').". Reassign those seeds before deleting it.");
+                db()->prepare("DELETE FROM $table WHERE id=?")->execute([$id]);
                 flash('success', "$label deleted.");
             } else {
                 $id = nullable_int($_POST['id'] ?? null);
                 $name=trim((string)($_POST['name'] ?? ''));
                 $description=trim((string)($_POST['description'] ?? '')) ?: null;
                 if ($name === '') { throw new RuntimeException("$label name is required."); }
+                $nameLimit=match($section){'categories'=>100,'families','uses'=>120,'statuses'=>80};
+                if (mb_strlen($name)>$nameLimit) throw new RuntimeException("$label name must be $nameLimit characters or fewer.");
+                if ($id&&!record_exists($table,$id)) throw new RuntimeException("$label was not found.");
                 if ($section==='statuses') {
                     if ($id) { db()->prepare('UPDATE statuses SET name=?, is_active=? WHERE id=?')->execute([$name, isset($_POST['is_active'])?1:0, $id]); }
-                    else { db()->prepare('INSERT INTO statuses (name,is_active) VALUES (?,?) ON DUPLICATE KEY UPDATE is_active=VALUES(is_active)')->execute([$name, isset($_POST['is_active'])?1:0]); }
+                    else { db()->prepare('INSERT INTO statuses (name,is_active) VALUES (?,?)')->execute([$name, isset($_POST['is_active'])?1:0]); }
                 } else {
                     if ($id) { db()->prepare("UPDATE $table SET name=?, description=? WHERE id=?")->execute([$name,$description,$id]); }
-                    else { db()->prepare("INSERT INTO $table (name,description) VALUES (?,?) ON DUPLICATE KEY UPDATE description=VALUES(description)")->execute([$name,$description]); }
+                    else { db()->prepare("INSERT INTO $table (name,description) VALUES (?,?)")->execute([$name,$description]); }
                 }
                 flash('success', "$label saved.");
             }
@@ -390,6 +438,6 @@ function manage_page(string $section): void
     }
     $rows = db()->query("SELECT * FROM $table ORDER BY name")->fetchAll();
     render('Manage ' . $label . 's', function () use ($rows,$label,$section) { ?>
-    <h1>Manage <?= e($label) ?>s</h1><div class="row g-3"><div class="col-lg-4"><form method="post" class="card card-body"><?= csrf_field() ?><h2 class="h5">Add <?= e($label) ?></h2><div class="mb-3"><label class="form-label">Name</label><input class="form-control" name="name" required></div><?php if($section==='statuses'): ?><div class="form-check mb-3"><input class="form-check-input" type="checkbox" name="is_active" checked><label class="form-check-label">Active</label></div><?php else: ?><div class="mb-3"><label class="form-label">Description</label><textarea class="form-control" name="description"></textarea></div><?php endif; ?><button class="btn btn-success">Save</button></form></div><div class="col-lg-8"><div class="card"><div class="table-responsive"><table class="table mb-0 align-middle"><thead><tr><th>Name</th><th>Details</th><th class="text-end">Actions</th></tr></thead><tbody><?php foreach($rows as $r): ?><tr><td colspan="3"><form method="post" class="row g-2 align-items-center"><?= csrf_field() ?><input type="hidden" name="id" value="<?= e($r['id']) ?>"><div class="col-md-3"><input class="form-control" name="name" value="<?= e($r['name']) ?>" required></div><?php if($section==='statuses'): ?><div class="col-md-3"><div class="form-check"><input class="form-check-input" type="checkbox" name="is_active" <?= !empty($r['is_active'])?'checked':'' ?>><label class="form-check-label">Active</label></div></div><?php else: ?><div class="col-md-5"><input class="form-control" name="description" value="<?= e($r['description'] ?? '') ?>"></div><?php endif; ?><div class="col-md text-end"><button class="btn btn-sm btn-outline-success">Update</button></form><form method="post" data-confirm="Delete this item?" class="d-inline"><?= csrf_field() ?><input type="hidden" name="delete_id" value="<?= e($r['id']) ?>"><button class="btn btn-sm btn-outline-danger">Delete</button></form></div></td></tr><?php endforeach; ?></tbody></table></div></div></div></div>
+    <h1>Manage <?= e($label) ?>s</h1><div class="row g-3"><div class="col-lg-4"><form method="post" class="card card-body"><?= csrf_field() ?><h2 class="h5">Add <?= e($label) ?></h2><div class="mb-3"><label class="form-label">Name</label><input class="form-control" name="name" required></div><?php if($section==='statuses'): ?><div class="form-check mb-3"><input class="form-check-input" type="checkbox" name="is_active" checked><label class="form-check-label">Active</label></div><?php else: ?><div class="mb-3"><label class="form-label">Description</label><textarea class="form-control" name="description"></textarea></div><?php endif; ?><button class="btn btn-success">Save</button></form></div><div class="col-lg-8"><div class="card"><div class="table-responsive"><table class="table mb-0 align-middle"><thead><tr><th>Name</th><th>Details</th><th class="text-end">Actions</th></tr></thead><tbody><?php foreach($rows as $r): ?><tr><td colspan="3"><form method="post" class="row g-2 align-items-center"><?= csrf_field() ?><input type="hidden" name="id" value="<?= e($r['id']) ?>"><div class="col-md-3"><input class="form-control" name="name" value="<?= e($r['name']) ?>" required></div><?php if($section==='statuses'): ?><div class="col-md-3"><div class="form-check"><input class="form-check-input" type="checkbox" name="is_active" <?= !empty($r['is_active'])?'checked':'' ?>><label class="form-check-label">Active</label></div></div><?php else: ?><div class="col-md-5"><input class="form-control" name="description" value="<?= e($r['description'] ?? '') ?>"></div><?php endif; ?><div class="col-md text-end"><button class="btn btn-sm btn-outline-success">Update</button></form><form method="post" data-confirm="Delete this item?" class="d-inline"><?= csrf_field() ?><input type="hidden" name="delete_id" value="<?= e($r['id']) ?>"><button class="btn btn-sm btn-outline-danger">Delete</button></form></div></td></tr><?php endforeach; ?><?php if(!$rows):?><tr><td colspan="3" class="text-muted">No values yet. Add the first value using this form.</td></tr><?php endif?></tbody></table></div></div></div></div>
     <?php });
 }

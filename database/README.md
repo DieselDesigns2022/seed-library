@@ -42,3 +42,7 @@ This adds only `users.is_owner`, defaulting existing users to owner for compatib
 
 ### Phase 4 structured growing data
 Run `2026-08-14-phase-4-growing-data.sql` on an existing installation. The migration checks each column and is safe to rerun after either a complete or interrupted earlier run. It only adds nullable columns and backfills the new maturity minimum/maximum from the legacy value; it does not delete or replace seeds, relationships, uses, months, statuses, or any other data. Fresh installations already include these columns in `schema.sql`.
+
+## Phase 5
+
+Apply `2026-08-14-phase-5-settings-defaults.sql` after the Phase 4 migrations. It is idempotent and uses `INSERT IGNORE` to add only missing Phase 5 lookup values and settings, so custom lookup values and existing saved settings remain unchanged. Fresh installs obtain the same starter values from `schema.sql`, which preserves the existing descriptions for Vegetable, Herb, Flower, and Medicinal.

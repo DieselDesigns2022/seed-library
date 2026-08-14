@@ -4,6 +4,8 @@ Audit date: 2026-06-06
 
 Scope: This audit inspects the current repository only. No application code was changed. The only intended file change for this task is this `AUDIT.md` file.
 
+> Historical record: findings below describe the repository at the audit date and were subsequently addressed. They are not claims about the current Phase 5 implementation; see `README.md`, `TESTING.md`, and `AUDIT_FIXES.md` for current behavior and later fixes.
+
 ## Audit methodology
 
 Reviewed these files:
