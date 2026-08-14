@@ -165,13 +165,13 @@ CREATE TABLE seed_history (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT INTO categories (name, description) VALUES
-('Vegetable','Edible vegetable crops'),('Herb','Culinary herbs'),('Flower','Flowering plants'),('Medicinal','Medicinal plants')
+('Vegetable','Edible vegetable crops'),('Fruit',NULL),('Herb','Culinary herbs'),('Medicinal','Medicinal plants'),('Medicinal Herb',NULL),('Flower','Flowering plants'),('Pollinator Plant',NULL),('Cover Crop',NULL),('Grain',NULL),('Root Crop',NULL),('Brassica',NULL),('Legume',NULL),('Cucurbit',NULL),('Nightshade',NULL),('Allium',NULL),('Microgreen',NULL),('Tree/Shrub',NULL),('Native Plant',NULL)
 ON DUPLICATE KEY UPDATE name = VALUES(name);
 INSERT INTO plant_families (name) VALUES
-('Apiaceae'),('Asteraceae'),('Brassicaceae'),('Cucurbitaceae'),('Fabaceae'),('Lamiaceae'),('Poaceae'),('Rosaceae'),('Solanaceae')
+('Solanaceae'),('Cucurbitaceae'),('Brassicaceae'),('Fabaceae'),('Apiaceae'),('Asteraceae'),('Amaranthaceae'),('Lamiaceae'),('Poaceae'),('Amaryllidaceae'),('Malvaceae'),('Rosaceae'),('Polygonaceae'),('Boraginaceae'),('Plantaginaceae')
 ON DUPLICATE KEY UPDATE name = VALUES(name);
 INSERT INTO uses (name) VALUES
-('Culinary'),('Medicinal'),('Pollinator'),('Cut Flower'),('Container'),('Seed Saving'),('Tea'),('Dye')
+('Culinary'),('Container'),('Dye'),('Fresh Eating'),('Cooking'),('Canning'),('Pickling'),('Freezing'),('Dehydrating'),('Tea'),('Medicinal'),('Tincture'),('Salve'),('Pollinator'),('Cut Flower'),('Dye Plant'),('Pest Deterrent'),('Companion Plant'),('Cover Crop'),('Soil Improvement'),('Animal Feed'),('Seed Saving'),('Ornamental')
 ON DUPLICATE KEY UPDATE name = VALUES(name);
 INSERT INTO statuses (name, is_active) VALUES
 ('Active',1),('Low Stock',1),('Expired',0),('Archived',0),('Wish List',1),
@@ -179,5 +179,6 @@ INSERT INTO statuses (name, is_active) VALUES
 ('Harvested',1),('Failed Germination',1),('Out of Stock',1),('Need to Buy More',1),('Save for Next Year',1)
 ON DUPLICATE KEY UPDATE name = VALUES(name);
 INSERT INTO settings (setting_key, setting_value) VALUES
-('zone','6B'),('zip','48239'),('region','Southeast Michigan'),('average_last_frost','05-05'),('average_first_frost','10-15')
+('zone','6B'),('zip','48239'),('region','Southeast Michigan'),('average_last_frost','05-05'),('average_first_frost','10-15'),
+('garden_notes',''),('display_exact_dates','1'),('display_plantable_months','1'),('seed_number_order','natural'),('default_inventory_sort','seed_number'),('rows_per_page','25')
 ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value);
