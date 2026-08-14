@@ -2,6 +2,20 @@
 
 This guide walks through testing Seed Library from a clean checkout through the core Version 1.0 workflows.
 
+## Phase 6 automated and live verification boundary
+
+Run the complete source suite from the repository root:
+
+```bash
+find app public scripts tests -name '*.php' -print0 | xargs -0 -n1 php -l
+for t in tests/*.php; do php "$t"; done
+git diff --check
+```
+
+The Phase 6 static test checks response headers, the explicit Secure-cookie production override, enforcement of private import permissions and superseded-upload cleanup, login labels, skip navigation, navigation naming, and visible keyboard focus. It does not substitute for an authenticated browser or database.
+
+On the production-like VPS, test at narrow phone and desktop widths with keyboard-only navigation. Exercise Login, Dashboard, Inventory filters/cards, Add/Edit/Detail (including **Save and Add Another**), July Calendar, Onion Companion Finder, management pages, import review, exports, print, and owner backup/restore. With a disposable copy of representative data, capture `EXPLAIN` plans and timings for Inventory/global search/filter/count/calendar/companion queries at 200+ and 500+ records. Confirm HTTPS sets the session cookie `Secure`, all writable paths are outside `public/`, import files are mode `0600`, errors expose no internal paths or SQL, and an approximately 100-row import can be corrected before confirmation. These browser, authenticated MySQL, scale, and VPS checks are **pending live testing** until recorded in the deployment log; never alter owner seed data to manufacture them.
+
 The project is a framework-light PHP/MySQL application. It does **not** require Composer for the current codebase. XLSX import/export uses native PHP extensions only:
 
 - `ZipArchive` from the PHP `zip` extension.

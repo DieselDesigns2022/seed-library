@@ -12,7 +12,10 @@ date_default_timezone_set($config['app']['timezone'] ?? 'UTC');
 ini_set('session.use_strict_mode', '1');
 if (session_status() !== PHP_SESSION_ACTIVE) {
     session_name($config['app']['session_name'] ?? 'seed_library_session');
-    $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
+    // Production may terminate TLS before PHP, so operators can explicitly
+    // require Secure cookies without trusting spoofable forwarding headers.
+    $secure = (bool)($config['app']['force_https'] ?? false)
+        || (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
     session_set_cookie_params([
         'lifetime' => 0,
         'path' => '/',
@@ -22,6 +25,13 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
         'samesite' => 'Lax',
     ]);
     session_start();
+}
+
+if (PHP_SAPI !== 'cli' && !headers_sent()) {
+    header('X-Content-Type-Options: nosniff');
+    header('X-Frame-Options: DENY');
+    header('Referrer-Policy: same-origin');
+    header('Permissions-Policy: camera=(), microphone=(), geolocation=()');
 }
 
 function config(string $key, mixed $default = null): mixed

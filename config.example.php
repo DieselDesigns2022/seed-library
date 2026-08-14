@@ -6,6 +6,9 @@ return [
         'session_name' => 'seed_library_session',
         'timezone' => 'America/Detroit',
         'debug' => false,
+        // Set true in production when HTTPS terminates at a reverse proxy.
+        // This forces Secure session cookies without trusting request headers.
+        'force_https' => false,
         // Optional absolute writable directory tried before storage/imports.
         // If both are unusable, the app tries a seed-library directory under the system temp path.
         // 'imports_path' => '/var/lib/seed-library/imports',
