@@ -74,13 +74,16 @@ function seed_query(array $filters = [], bool $paginate = false): array
     $from = ' FROM seeds s LEFT JOIN categories c ON c.id=s.category_id LEFT JOIN plant_families pf ON pf.id=s.plant_family_id LEFT JOIN statuses st ON st.id=s.status_id LEFT JOIN seed_locations l ON l.seed_id=s.id';
     [$where,$params]=seed_filter_parts($filters); $whereSql=$where?' WHERE '.implode(' AND ',$where):'';
     $sortMap=['seed_number'=>'s.seed_number','name'=>'s.name','variety'=>'s.variety','category_name'=>'c.name','family_name'=>'pf.name','plant_type'=>'s.plant_type','planting_method'=>'s.planting_method','germination'=>'COALESCE(s.days_to_germination_min, s.days_to_germination_max)','maturity'=>'COALESCE(s.days_to_maturity_min, s.days_to_maturity_max, s.days_to_maturity)','seed_source'=>'s.seed_source','packet_year'=>'s.packet_year','status_name'=>'st.name','planting_start'=>'s.planting_start_month * 100 + s.planting_start_day','planting_start_month'=>'s.planting_start_month * 100 + s.planting_start_day','planting_end'=>'s.planting_end_month * 100 + s.planting_end_day','planting_end_month'=>'s.planting_end_month * 100 + s.planting_end_day','storage_box'=>'l.storage_box'];
-    $sort=$sortMap[$filters['sort']??'seed_number']??$sortMap['seed_number'];
+    $requestedSort=(string)($filters['sort']??'');
+    $sortKey=array_key_exists($requestedSort,$sortMap)?$requestedSort:setting_choice('default_inventory_sort',array_keys($sortMap),'seed_number');
+    $sort=$sortMap[$sortKey];
+    if ($sortKey==='seed_number' && setting_choice('seed_number_order',['natural','lexicographic'],'natural')==='natural') $sort="CAST(s.seed_number AS UNSIGNED), s.seed_number";
     $direction = strtoupper($filters['direction'] ?? 'ASC') === 'DESC' ? 'DESC' : 'ASC';
     $total=null; $overallTotal=null; $page=1; $perPage=null; $pages=null;
     if ($paginate) {
         $count=db()->prepare('SELECT COUNT(*)'.$from.$whereSql); $count->execute($params); $total=(int)$count->fetchColumn();
         $overallTotal=(int)db()->query('SELECT COUNT(*) FROM seeds')->fetchColumn();
-        $allowed=[25,50,100,200]; $perPage=in_array((int)($filters['per_page']??25),$allowed,true)?(int)($filters['per_page']??25):25;
+        $allowed=[25,50,100,200]; $defaultPerPage=(int)setting_choice('rows_per_page',array_map('strval',$allowed),'25'); $requestedPerPage=(int)($filters['per_page']??0); $perPage=in_array($requestedPerPage,$allowed,true)?$requestedPerPage:$defaultPerPage;
         $pages=(int)ceil($total/$perPage);
         $page=$pages===0?0:min(max(1,(int)($filters['page']??1)),$pages);
     }
@@ -309,6 +312,16 @@ function save_location(int $seedId): void
     foreach ($fields as $field) { $values[$field] = trim((string)($_POST[$field] ?? '')) ?: null; }
     $stmt = db()->prepare('INSERT INTO seed_locations (seed_id, storage_box, container, envelope, row_label, slot, notes) VALUES (?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE storage_box=VALUES(storage_box), container=VALUES(container), envelope=VALUES(envelope), row_label=VALUES(row_label), slot=VALUES(slot), notes=VALUES(notes)');
     $stmt->execute([$seedId, $values['storage_box'], $values['container'], $values['envelope'], $values['row_label'], $values['slot'], $values['location_notes']]);
+}
+
+function storage_history_changes(array $before, array $after): array
+{
+    $changes=[];
+    foreach (['storage_box','container','envelope','row_label','slot','location_notes'] as $key) {
+        $old=$before[$key]??null; $new=$after[$key]??null;
+        if ($old!==$new) $changes[$key]=['before'=>history_friendly_value($key,$old),'after'=>history_friendly_value($key,$new)];
+    }
+    return $changes;
 }
 
 function save_seed_uses(int $seedId, array $uses): void

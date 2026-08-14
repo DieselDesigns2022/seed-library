@@ -170,13 +170,46 @@ function save_setting(string $key, string $value): void
     $stmt->execute([$key, $value]);
 }
 
+function display_exact_dates(): bool
+{
+    if (array_key_exists('display_exact_dates_override', $GLOBALS)) return (bool)$GLOBALS['display_exact_dates_override'];
+    if (PHP_SAPI === 'cli') return true;
+    return setting('display_exact_dates', '1') === '1';
+}
+
+function display_plantable_months(): bool
+{
+    if (array_key_exists('display_plantable_months_override', $GLOBALS)) return (bool)$GLOBALS['display_plantable_months_override'];
+    if (PHP_SAPI === 'cli') return true;
+    return setting('display_plantable_months', '1') === '1';
+}
+
 function date_label(?int $month, ?int $day): string
 {
-    if (!$month || !$day) {
-        return '';
-    }
-    return DateTime::createFromFormat('!m-d', sprintf('%02d-%02d', $month, $day))->format('M j');
+    if (!$month || !$day || !valid_month_day($month, $day)) return '';
+    $date = DateTime::createFromFormat('!m-d', sprintf('%02d-%02d', $month, $day));
+    return $date->format(display_exact_dates() ? 'M j' : 'F');
 }
+
+function plantable_months_label(?string $value, string $empty = 'Not recorded'): string
+{
+    if (!$value) return $empty;
+    return implode(', ', array_map(fn($month) => month_name((int)$month), explode(',', $value)));
+}
+
+function inventory_sort_options(): array
+{
+    return ['seed_number','name','variety','category_name','family_name','plant_type','planting_method','germination','maturity','seed_source','planting_start','planting_end','packet_year','storage_box','status_name'];
+}
+
+function inventory_page_sizes(): array { return [25,50,100,200]; }
+
+function setting_choice(string $key, array $allowed, string $default): string
+{
+    $value=setting($key,$default);
+    return in_array($value,$allowed,true) ? $value : $default;
+}
+
 
 
 function setting_date_label(string $key, string $default): string
