@@ -20,6 +20,11 @@ body { min-height: 100vh; }
   .card { border: 0; box-shadow: none !important; }
   a { color: #000; text-decoration: none; }
   .page-break { page-break-before: always; }
+  @page { size: landscape; margin: 10mm; }
+  .print-report-header { display: block; border-bottom: 2px solid #222; margin-bottom: .5rem; }
+  .print-table { width: 100%; font-size: 8pt; table-layout: auto; }
+  .print-table th { background: #eee !important; print-color-adjust: exact; }
+  .print-table tr { break-inside: avoid; }
 }
 .month-grid,.flag-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:.65rem}.form-actions{z-index:10}.card dl{margin-bottom:0}@media(max-width:575.98px){.sticky-bottom{position:static!important}.form-actions .btn{width:100%}}
 .calendar-notes{min-width:14rem;max-width:28rem;white-space:normal}.companion-row .remove-companion{padding-left:.55rem;padding-right:.55rem}

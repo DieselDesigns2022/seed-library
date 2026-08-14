@@ -1187,3 +1187,19 @@ git diff --check
 Companion Finder direction rules: Good Companion, Avoid, and Neutral are symmetric. Pest Deterrent, Trap Crop, Support Plant, and Pollinator Support are directional and preserve each stored source → target direction. Reciprocal or multiple records must produce one row per returned seed and relationship type, with distinct notes and directional paths merged.
 
 Database/browser checks: apply the idempotent Phase 3 status migration twice and confirm custom statuses remain; test January through December, an explicit Plantable Months seed, and a Nov–Feb range; exercise every calendar group; save more than six companions, remove a middle row, reject self/invalid/duplicate pairs, then duplicate the seed and inspect history; search each endpoint by name/variety/number and verify unique, correctly categorized results and Good Companion/Avoid headings; change each practical status and confirm inventory filtering, detail display, and friendly history values.
+
+# Phase 4 verification
+
+```bash
+find app public scripts tests -name '*.php' -print0 | xargs -0 -n1 php -l
+php tests/phase2_static.php
+php tests/phase3_static.php
+php tests/phase4_static.php
+git diff --check
+```
+
+Phase 4 static/behavioral checks cover failed-row retention and blocking/skip controls, post-edit exact duplicate revalidation, missing Update Existing targets, transactional storage upsert wiring, filtered-export safety, Companion plant filtering, concise report columns, neutral known-layout wording, the known-workbook heading detector and transforms, namespace/rich-text XML helpers, review resolution controls, staged within-file update logic, canonical backup containment (including a symlink), cron paths/permissions, and companion direction/deduplication.
+
+Live owner verification must use a disposable/restorable MySQL database: upload the actual starting CSV/XLSX (there is intentionally no fabricated workbook), inspect compatibility detection, first-semicolon name/variety split, month-name dates, safe outdoor window and numeric/flag transforms, preserved original-heading Notes, Category and ambiguity correction, then trigger required/date/numeric/lookup/within-file/database duplicate errors and confirm every raw row remains visible until corrected or skipped, and exercise each per-row duplicate resolution while comparing Seed Number bytes, including a new first occurrence followed by within-file Update Existing. Map and update every storage field in the same transaction; verify omitted location fields remain unchanged and explicitly mapped blanks clear only their own fields. Correct and skip error/manual rows and verify final historical summary counts remain present. Change Seed Numbers during review and confirm targets/counts are recalculated. Confirm cancelled review writes nothing and a forced database error rolls the entire import back. Combine every Phase 2 filter and compare screen results with filtered CSV/XLSX; open both formats. Verify the standalone Export page cannot initiate an unfiltered “Filtered Results” download. Filter the Companion Guide by plant and verify symmetric/directional merged output. Print/save every concise report, all twelve calendar months, long tables, and Seed Bank's exact four columns.
+
+As a non-owner, verify `/backup` returns 403. As owner, download a full backup, verify no file appears under `public/`, reject malformed/oversize/wrong-version/incomplete JSON, backups without a valid owner, and wrong confirmation; then restore a known disposable fixture and confirm the prior session is invalidated and a fresh owner login is required. On the VPS, run the documented backup command, inspect owner/mode/location, simulate dated files to verify 7 daily/4 weekly retention, install and observe cron, and perform a recovery drill before relying on scheduling.

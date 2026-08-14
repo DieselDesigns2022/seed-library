@@ -1,0 +1,27 @@
+<?php
+declare(strict_types=1);
+$root=dirname(__DIR__);require_once $root.'/app/bootstrap.php';require_once $root.'/app/seeds.php';require_once $root.'/app/import_export.php';require_once $root.'/app/backup.php';
+$import=file_get_contents($root.'/app/import_export.php');$backup=file_get_contents($root.'/app/backup.php');$readme=file_get_contents($root.'/README.md');$testing=file_get_contents($root.'/TESTING.md');$sample=array_fill_keys(known_workbook_headings(),'');$sample=array_merge($sample,['Label'=>'  A-01 ','Seed'=>'Tomato; Black Krim; selected line','Crop Type'=>'Fruit','Planting Method'=>'direct sow or transplant','Start Planting Date'=>'May 15','Last Suggested Planting Date'=>'June 20','Germination Time'=>'7-14 days','Days to Harvest / Bloom'=>'80 days','Sources'=>'Owner packet']);$derived=transform_known_workbook_row($sample)['payload'];
+$tmp=sys_get_temp_dir().'/seed-library-phase4-'.bin2hex(random_bytes(4));mkdir($tmp);$sibling=resolve_backup_directory($tmp);$publicRejected=false;try{resolve_backup_directory($root.'/public');}catch(RuntimeException){$publicRejected=true;}$link=$tmp.'-link';@symlink($root.'/public',$link);$linkRejected=false;try{resolve_backup_directory($link);}catch(RuntimeException){$linkRejected=true;}@unlink($link);@rmdir($tmp);$xml=simplexml_load_string('<si xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><r><t>Rich </t></r><r><t>Text</t></r></si>');
+$checks=[
+ 'known workbook compatibility is neutral'=>is_known_workbook(known_workbook_headings())&&!str_contains($import,'owner workbook')&&!str_contains($readme,'real workbook'),
+ 'known identity/date/value transforms'=>$derived['seed_number']==='  A-01 '&&$derived['name']==='Tomato'&&$derived['variety']==='Black Krim; selected line'&&$derived['planting_start_month']===5&&$derived['planting_method']==='Direct Sow or Transplant'&&$derived['days_to_maturity']===80,
+ 'namespace rich strings and relationship worksheet'=>xlsx_text_nodes($xml)==='Rich Text'&&str_contains($import,'local-name()="Relationship"'),
+ 'every failed row retained with raw data'=>str_contains($import,"'raw'=>\$rawRow")&&str_contains($import,'$reasons[]=$e instanceof RuntimeException')&&str_contains($import,"foreach(\$r['rows']as\$item)"),
+ 'failed rows block or explicit skip'=>str_contains($import,'Resolve every highlighted row')&&str_contains($import,"\$item['decision']==='skip'?[]"),
+ 'all mapped data review-editable'=>str_contains($import,'payload_json')&&str_contains($import,'JSON_THROW_ON_ERROR'),
+ 'duplicates revalidated after corrections'=>str_contains($import,'return revalidate_import_review($review,true)')&&str_contains($import,"\$item['existing']=null")&&str_contains($import,'$stmt->execute([$key])'),
+ 'update exact target required'=>str_contains($import,'Update Existing requires an exact database or earlier staged Seed Number target.'),
+ 'corrected duplicate summary recalculated'=>str_contains($import,"\$review['duplicate_seed_numbers']=\$duplicates"),
+ 'location updates preserve unmapped fields'=>str_contains($import,'foreach($location as$field=>$value)')&&str_contains($import,'array_key_exists($f,$p)')&&!str_contains($import,'foreach(import_location_columns()as$f)$values[$f]'),
+ 'storage mappings and atomic upsert'=>str_contains($import,"'storage box'=>'storage_box'")&&str_contains($import,'save_import_location($pdo,$seedId,$p)')&&str_contains($import,'ON DUPLICATE KEY UPDATE'),
+ 'standalone filtered links removed'=>!str_contains($import,'Filtered Results CSV')&&str_contains($import,'Inventory and use its authoritative CSV/XLSX buttons'),
+ 'companion plant filtering and semantics'=>str_contains($import,'companion_report_rows(string $plant')&&str_contains($import,'name="plant"')&&str_contains($import,"'symmetric'")&&str_contains($import,' → '),
+ 'readable report-specific columns'=>str_contains($import,'readable_seed_report_rows')&&str_contains($import,"'Minimum Container'")&&str_contains($import,"'Days to Maturity'")&&str_contains($import,"'Planting Window'"),
+ 'historical summary counts preserved'=>str_contains($import,"'encountered_errors'")&&str_contains($import,"'encountered_missing_required'")&&str_contains($import,"'encountered_manual_review'")&&str_contains($import,'Update Existing lost its exact target'),
+ 'owner validation behavior'=>backup_has_valid_owner([['id'=>'1','email'=>'owner@example.com','is_owner'=>1,'password_hash'=>password_hash('test',PASSWORD_DEFAULT)]])&&!backup_has_valid_owner([['id'=>'1','email'=>'owner@example.com','is_owner'=>0,'password_hash'=>password_hash('test',PASSWORD_DEFAULT)]])&&!backup_has_valid_owner([['id'=>'1','email'=>'bad','is_owner'=>1,'password_hash'=>'not-a-hash']]),
+ 'restore requires owner and fresh login'=>str_contains($backup,'backup_has_valid_owner')&&str_contains($backup,"\$info['algoName']")&&str_contains($backup,'session_regenerate_id(true)')&&str_contains($backup,"redirect('login')"),
+ 'backup canonical containment'=>$sibling===$tmp&&$publicRejected&&$linkRejected,
+ 'cron path and writable log'=>str_contains($readme,'/var/www/garden.dieseldesigns.co/scripts/database_backup.php')&&str_contains($readme,'/var/log/seed-library/backup.log'),
+ 'actual XLSX explicitly remains live'=>str_contains($testing,'actual starting CSV/XLSX'),
+];$failed=[];foreach($checks as$name=>$ok){echo($ok?'PASS':'FAIL').": $name\n";if(!$ok)$failed[]=$name;}if($failed)exit(1);echo"Phase 4 static/behavioral checks passed.\n";

@@ -4,6 +4,7 @@ require __DIR__ . '/../app/bootstrap.php';
 require __DIR__ . '/../app/view.php';
 require __DIR__ . '/../app/seeds.php';
 require __DIR__ . '/../app/import_export.php';
+require __DIR__ . '/../app/backup.php';
 
 $path = trim(parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH), '/');
 $base = trim(dirname($_SERVER['SCRIPT_NAME'] ?? ''), '/');
@@ -42,6 +43,7 @@ function match_route(string $path): void
     if ($path === 'import') { import_page(); return; }
     if ($path === 'export') { export_page(); return; }
     if ($path === 'print') { print_page(); return; }
+    if ($path === 'backup') { backup_page(); return; }
     if ($path === 'settings') { settings_page(); return; }
     if (preg_match('#^manage/(categories|families|uses|statuses)$#', $path, $m)) { manage_page($m[1]); return; }
     http_response_code(404); render('Not Found', fn() => print '<h1>Not Found</h1>');
