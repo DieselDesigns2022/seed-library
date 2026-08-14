@@ -14,12 +14,13 @@ function render(string $title, callable $content, array $options = []): void
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="<?= e(url('assets/app.css')) ?>" rel="stylesheet">
 </head>
-<body class="bg-light <?= $print ? 'print-view' : '' ?>">
+<body class="<?= $print ? 'print-view' : '' ?>">
+<a class="skip-link" href="#main-content">Skip to main content</a>
 <?php if (!$print): ?>
 <nav class="navbar navbar-expand-lg navbar-dark bg-success sticky-top shadow-sm">
   <div class="container-fluid">
     <a class="navbar-brand fw-bold" href="<?= e(url('dashboard')) ?>">🌱 Seed Library</a>
-    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMain"><span class="navbar-toggler-icon"></span></button>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMain" aria-controls="navMain" aria-expanded="false" aria-label="Open navigation"><span class="navbar-toggler-icon"></span></button>
     <div class="collapse navbar-collapse" id="navMain">
       <?php if (current_user()): ?>
       <ul class="navbar-nav me-auto mb-2 mb-lg-0">
@@ -35,9 +36,9 @@ function render(string $title, callable $content, array $options = []): void
   </div>
 </nav>
 <?php endif; ?>
-<main class="container-fluid py-4">
+<main id="main-content" class="container-fluid py-4" tabindex="-1">
   <?php foreach (flashes() as $flash): ?>
-  <div class="alert alert-<?= e($flash['type']) ?> alert-dismissible fade show" role="alert"><?= e($flash['message']) ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+  <div class="alert alert-<?= e($flash['type']) ?> alert-dismissible fade show" role="alert" aria-live="polite"><?= e($flash['message']) ?><button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Dismiss message"></button></div>
   <?php endforeach; ?>
   <?php $content(); ?>
 </main>
