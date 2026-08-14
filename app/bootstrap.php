@@ -124,11 +124,17 @@ function current_user(): ?array
     }
     static $user = null;
     if ($user === null) {
-        $stmt = db()->prepare('SELECT id, name, email FROM users WHERE id = ?');
+        $stmt = db()->prepare('SELECT id, name, email, is_owner FROM users WHERE id = ?');
         $stmt->execute([$_SESSION['user_id']]);
         $user = $stmt->fetch() ?: false;
     }
     return $user ?: null;
+}
+
+function require_owner(): void
+{
+    $user=current_user();
+    if(!$user||empty($user['is_owner'])) { http_response_code(403); render('Forbidden',fn()=>print '<div class="alert alert-danger"><h1>Owner access required</h1></div>'); exit; }
 }
 
 function require_auth(): void
@@ -201,7 +207,7 @@ function reference_data(): array
 
 function seed_columns(): array
 {
-    return ['seed_number','name','variety','category_id','plant_family_id','status_id','plant_type','planting_method','days_to_germination_min','days_to_germination_max','days_to_maturity','planting_start_month','planting_start_day','planting_end_month','planting_end_day','plantable_months','indoor_start_month','indoor_start_day','indoor_end_month','indoor_end_day','direct_sow_start_month','direct_sow_start_day','direct_sow_end_month','direct_sow_end_day','transplant_start_month','transplant_start_day','transplant_end_month','transplant_end_day','indoor_start_weeks_before_frost','transplant_weeks_after_frost','succession_days','sun_requirements','water_requirements','soil_requirements','spacing','sowing_depth','ideal_soil_temperature','row_spacing','thin_to_spacing','minimum_container_size','plant_height','container_friendly','pollinator_friendly','medicinal','perennial','frost_tolerant','heat_tolerant','drought_tolerant','trellis_needed','perennial_status','seed_source','packet_year','quantity','purchase_date','expiration_year','notes'];
+    return ['seed_number','name','variety','category_id','plant_family_id','status_id','plant_type','planting_method','days_to_germination_min','days_to_germination_max','days_to_maturity','days_to_maturity_min','days_to_maturity_max','maturity_qualifier','planting_start_month','planting_start_day','planting_end_month','planting_end_day','plantable_months','indoor_start_status','indoor_start_month','indoor_start_day','indoor_end_month','indoor_end_day','direct_sow_status','direct_sow_start_month','direct_sow_start_day','direct_sow_end_month','direct_sow_end_day','transplant_status','transplant_start_month','transplant_start_day','transplant_end_month','transplant_end_day','indoor_start_weeks_before_frost','transplant_weeks_after_frost','succession_days','sun_requirements','water_requirements','soil_requirements','spacing','sowing_depth','ideal_soil_temperature','row_spacing','thin_to_spacing','minimum_container_size','plant_height','container_friendly','pollinator_friendly','medicinal','perennial','frost_tolerant','heat_tolerant','drought_tolerant','trellis_needed','perennial_status','seed_source','packet_year','quantity','purchase_date','expiration_year','notes'];
 }
 
 function seed_boolean_columns(): array
@@ -211,7 +217,7 @@ function seed_boolean_columns(): array
 
 function seed_integer_columns(): array
 {
-    return ['category_id','plant_family_id','status_id','days_to_germination_min','days_to_germination_max','days_to_maturity','planting_start_month','planting_start_day','planting_end_month','planting_end_day','indoor_start_month','indoor_start_day','indoor_end_month','indoor_end_day','direct_sow_start_month','direct_sow_start_day','direct_sow_end_month','direct_sow_end_day','transplant_start_month','transplant_start_day','transplant_end_month','transplant_end_day','indoor_start_weeks_before_frost','transplant_weeks_after_frost','succession_days','packet_year','expiration_year'];
+    return ['category_id','plant_family_id','status_id','days_to_germination_min','days_to_germination_max','days_to_maturity','days_to_maturity_min','days_to_maturity_max','planting_start_month','planting_start_day','planting_end_month','planting_end_day','indoor_start_month','indoor_start_day','indoor_end_month','indoor_end_day','direct_sow_start_month','direct_sow_start_day','direct_sow_end_month','direct_sow_end_day','transplant_start_month','transplant_start_day','transplant_end_month','transplant_end_day','indoor_start_weeks_before_frost','transplant_weeks_after_frost','succession_days','packet_year','expiration_year'];
 }
 
 
@@ -269,4 +275,22 @@ function log_history(?int $seedId, string $action, array $changes = []): void
 {
     $stmt = db()->prepare('INSERT INTO seed_history (seed_id, user_id, action, changes_json) VALUES (?, ?, ?, ?)');
     $stmt->execute([$seedId, $_SESSION['user_id'] ?? null, $action, json_encode($changes, JSON_THROW_ON_ERROR)]);
+}
+
+function maturity_display(array $seed, string $empty = 'Not recorded'): string
+{
+    $min=$seed['days_to_maturity_min']??null; $max=$seed['days_to_maturity_max']??null;
+    if ($min===null && $max===null) $min=$max=$seed['days_to_maturity']??null;
+    if ($min===null && $max===null) return $empty;
+    $days=$min!==null && $max!==null && (int)$min!==(int)$max ? $min.'–'.$max : (string)($min??$max);
+    $qualifier=trim((string)($seed['maturity_qualifier']??''));
+    return $days.' days'.($qualifier!==''?' '.$qualifier:'');
+}
+
+function planting_availability_display(array $seed, string $prefix): string
+{
+    $start=date_label($seed[$prefix.'_start_month']??null,$seed[$prefix.'_start_day']??null);
+    $end=date_label($seed[$prefix.'_end_month']??null,$seed[$prefix.'_end_day']??null);
+    if ($start!=='' || $end!=='') return trim($start.($start!==''&&$end!==''?' – ':'').$end);
+    return (string)($seed[$prefix.'_status']??'') ?: 'Not recorded';
 }

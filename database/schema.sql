@@ -3,6 +3,7 @@ CREATE TABLE users (
   name VARCHAR(120) NOT NULL,
   email VARCHAR(190) NOT NULL UNIQUE,
   password_hash VARCHAR(255) NOT NULL,
+  is_owner TINYINT(1) NOT NULL DEFAULT 1,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -54,19 +55,25 @@ CREATE TABLE seeds (
   days_to_germination_min SMALLINT UNSIGNED NULL,
   days_to_germination_max SMALLINT UNSIGNED NULL,
   days_to_maturity SMALLINT UNSIGNED NULL,
+  days_to_maturity_min SMALLINT UNSIGNED NULL,
+  days_to_maturity_max SMALLINT UNSIGNED NULL,
+  maturity_qualifier VARCHAR(120) NULL,
   planting_start_month TINYINT UNSIGNED NULL,
   planting_start_day TINYINT UNSIGNED NULL,
   planting_end_month TINYINT UNSIGNED NULL,
   planting_end_day TINYINT UNSIGNED NULL,
   plantable_months VARCHAR(35) NULL COMMENT 'Comma-separated month numbers 1-12',
+  indoor_start_status ENUM('Not Recommended','Not Applicable') NULL,
   indoor_start_month TINYINT UNSIGNED NULL,
   indoor_start_day TINYINT UNSIGNED NULL,
   indoor_end_month TINYINT UNSIGNED NULL,
   indoor_end_day TINYINT UNSIGNED NULL,
+  direct_sow_status ENUM('Not Recommended','Not Applicable') NULL,
   direct_sow_start_month TINYINT UNSIGNED NULL,
   direct_sow_start_day TINYINT UNSIGNED NULL,
   direct_sow_end_month TINYINT UNSIGNED NULL,
   direct_sow_end_day TINYINT UNSIGNED NULL,
+  transplant_status ENUM('Not Recommended','Not Applicable') NULL,
   transplant_start_month TINYINT UNSIGNED NULL,
   transplant_start_day TINYINT UNSIGNED NULL,
   transplant_end_month TINYINT UNSIGNED NULL,
@@ -167,7 +174,9 @@ INSERT INTO uses (name) VALUES
 ('Culinary'),('Medicinal'),('Pollinator'),('Cut Flower'),('Container'),('Seed Saving'),('Tea'),('Dye')
 ON DUPLICATE KEY UPDATE name = VALUES(name);
 INSERT INTO statuses (name, is_active) VALUES
-('Active',1),('Low Stock',1),('Expired',0),('Archived',0),('Wish List',1)
+('Active',1),('Low Stock',1),('Expired',0),('Archived',0),('Wish List',1),
+('In Seed Bank',1),('Started Indoors',1),('Direct Sown',1),('Transplanted',1),('Growing',1),
+('Harvested',1),('Failed Germination',1),('Out of Stock',1),('Need to Buy More',1),('Save for Next Year',1)
 ON DUPLICATE KEY UPDATE name = VALUES(name);
 INSERT INTO settings (setting_key, setting_value) VALUES
 ('zone','6B'),('zip','48239'),('region','Southeast Michigan'),('average_last_frost','05-05'),('average_first_frost','10-15')
