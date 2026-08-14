@@ -19,7 +19,7 @@ function default_import_column(string $header): string
 {
     $key=strtolower(trim(preg_replace('/\s+/',' ',str_replace(['_','-'],' ',$header))));
     $map=['seed number'=>'seed_number','seed #'=>'seed_number','seed no'=>'seed_number','seed name'=>'name','plant name'=>'name','name'=>'name','variety'=>'variety','category'=>'category_id','plant family'=>'plant_family_id','family'=>'plant_family_id','status'=>'status_id','seed status'=>'status_id','source'=>'seed_source','sources'=>'seed_source','seed source'=>'seed_source','seed source/brand'=>'seed_source','packet year'=>'packet_year','storage box'=>'storage_box','container'=>'container','envelope'=>'envelope','row'=>'row_label','slot'=>'slot','storage notes'=>'location_notes','location notes'=>'location_notes','storage/location notes'=>'location_notes'];
-    if(isset($map[$key]))return $map[$key];$candidate=strtolower(trim(preg_replace('/[^a-z0-9]+/i','_',$header),'_'));return in_array($candidate,seed_columns(),true)?$candidate:'';
+    if(isset($map[$key]))return $map[$key];$candidate=strtolower(trim(preg_replace('/[^a-z0-9]+/i','_',$header),'_'));return in_array($candidate,import_destination_columns(),true)?$candidate:'';
 }
 function resolve_import_lookup(string $column,mixed $value): ?int
 {
@@ -45,10 +45,18 @@ function xlsx_first_worksheet_path(ZipArchive $zip): string
 function parse_xlsx_file(string $path): array
 {
     if(!class_exists('ZipArchive')||!function_exists('simplexml_load_string'))throw new RuntimeException('XLSX import requires PHP ZipArchive and SimpleXML.');$zip=new ZipArchive();if($zip->open($path)!==true)throw new RuntimeException('Invalid XLSX file.');$shared=[];
-    if($raw=$zip->getFromName('xl/sharedStrings.xml')){$xml=simplexml_load_string($raw,'SimpleXMLElement',LIBXML_NONET);if(!$xml)throw new RuntimeException('Invalid XLSX shared strings.');foreach($xml->xpath('/*[local-name()="sst"]/*[local-name()="si"]')?:[] as$si)$shared[]=xlsx_text_nodes($si);}
+    if($raw=$zip->getFromName('xl/sharedStrings.xml')){$xml=simplexml_load_string($raw,'SimpleXMLElement',LIBXML_NONET);if($xml===false)throw new RuntimeException('Invalid XLSX shared strings.');foreach($xml->xpath('/*[local-name()="sst"]/*[local-name()="si"]')?:[] as$si)$shared[]=xlsx_text_nodes($si);}
     $sheetPath=xlsx_first_worksheet_path($zip);$raw=$zip->getFromName($sheetPath);$zip->close();if(!$raw||!($xml=simplexml_load_string($raw,'SimpleXMLElement',LIBXML_NONET)))throw new RuntimeException('Invalid first worksheet.');$matrix=[];
     foreach($xml->xpath('//*[local-name()="sheetData"]/*[local-name()="row"]')?:[] as$row){$cells=[];foreach($row->xpath('./*[local-name()="c"]')?:[] as$cell)$cells[xlsx_column_index((string)$cell['r'])-1]=xlsx_cell_value($cell,$shared);if($cells){$matrix[]=array_replace(array_fill(0,max(array_keys($cells))+1,''),$cells);}}
-    $headers=array_map(fn($v)=>trim((string)$v),$matrix[0]??[]);validate_import_headers($headers);$rows=[];foreach(array_slice($matrix,1)as$row)$rows[]=array_combine($headers,array_pad($row,count($headers),''));return compact('headers','rows');
+    $headers=array_map(fn($v)=>trim((string)$v),$matrix[0]??[]);
+    while($headers!==[] && end($headers)==='') array_pop($headers);
+    validate_import_headers($headers);
+    $rows=[];
+    foreach(array_slice($matrix,1) as $row){
+        $row=array_slice(array_pad($row,count($headers),''),0,count($headers));
+        $rows[]=array_combine($headers,$row);
+    }
+    return compact('headers','rows');
 }
 function parse_import_file(string $file,string $ext): array{return$ext==='xlsx'?parse_xlsx_file($file):parse_csv_file($file);}
 function parse_known_month_day(string $value): ?array
@@ -83,7 +91,8 @@ function transform_known_workbook_row(array $row): array
     $reasons[]='Category must be selected; lookup values are never invented.';return['payload'=>$p,'reasons'=>array_values(array_unique($reasons))];
 }
 function import_location_columns(): array {return ['storage_box','container','envelope','row_label','slot','location_notes'];}
-function import_destination_columns(): array {return array_merge(seed_columns(),import_location_columns());}
+function import_meta_columns(): array {return ['garden_uses','good_companion_seed_numbers','avoid_companion_seed_numbers'];}
+function import_destination_columns(): array {return array_merge(seed_columns(),import_location_columns(),import_meta_columns());}
 function reconcile_import_perennial(array $p,?string $existing=null): array {$status=array_key_exists('perennial_status',$p)?$p['perennial_status']:$existing;if($status!==null&&$status!=='')$p['perennial']=$status==='Perennial'?1:0;return$p;}
 function normalize_import_payload(array $payload): array
 {
@@ -119,9 +128,78 @@ function save_import_location(PDO $pdo,int $seedId,array $payload): void
     $quoted=implode(',',array_map(fn($column)=>"`$column`",$columns));$updates=implode(',',array_map(fn($column)=>"`$column`=VALUES(`$column`)",$columns));
     $pdo->prepare('INSERT INTO seed_locations (seed_id,'.$quoted.') VALUES ('.implode(',',array_fill(0,count($columns)+1,'?')).') ON DUPLICATE KEY UPDATE '.$updates)->execute([$seedId,...$values]);
 }
+function import_pipe_values(mixed $value): array
+{
+    if($value===null||trim((string)$value)==='')return[];
+    return array_values(array_unique(array_filter(
+        array_map('trim',explode('|',(string)$value)),
+        fn($value)=>$value!==''
+    )));
+}
+
+function save_import_enrichment(PDO $pdo,int $seedId,array $payload): void
+{
+    if(array_key_exists('garden_uses',$payload)){
+        $findUse=$pdo->prepare('SELECT id FROM uses WHERE LOWER(name)=LOWER(?) LIMIT 1');
+        $insertUse=$pdo->prepare('INSERT IGNORE INTO seed_uses (seed_id,use_id) VALUES (?,?)');
+
+        foreach(import_pipe_values($payload['garden_uses']) as $useName){
+            $findUse->execute([$useName]);
+            $useId=$findUse->fetchColumn();
+            if($useId===false)throw new RuntimeException('Garden Use “'.$useName.'” does not exist.');
+            $insertUse->execute([$seedId,(int)$useId]);
+        }
+    }
+
+    $findSeed=$pdo->prepare('SELECT id FROM seeds WHERE seed_number=? ORDER BY id');
+    $relationshipExists=$pdo->prepare(
+        'SELECT 1 FROM companion_relationships
+         WHERE relationship_type=?
+         AND ((seed_id=? AND companion_seed_id=?) OR (seed_id=? AND companion_seed_id=?))
+         LIMIT 1'
+    );
+    $insertRelationship=$pdo->prepare(
+        'INSERT INTO companion_relationships
+         (seed_id,companion_seed_id,relationship_type,notes)
+         VALUES (?,?,?,NULL)'
+    );
+
+    foreach([
+        'good_companion_seed_numbers'=>'Good Companion',
+        'avoid_companion_seed_numbers'=>'Avoid'
+    ] as $field=>$relationshipType){
+        if(!array_key_exists($field,$payload))continue;
+
+        foreach(import_pipe_values($payload[$field]) as $seedNumber){
+            $findSeed->execute([$seedNumber]);
+            $targetIds=array_map('intval',$findSeed->fetchAll(PDO::FETCH_COLUMN));
+
+            if(!$targetIds)throw new RuntimeException(
+                'Companion Seed Number “'.$seedNumber.'” was not found.'
+            );
+
+            foreach($targetIds as $targetId){
+                if($targetId===$seedId)continue;
+
+                $relationshipExists->execute([
+                    $relationshipType,
+                    $seedId,$targetId,
+                    $targetId,$seedId
+                ]);
+
+                if(!$relationshipExists->fetchColumn()){
+                    $insertRelationship->execute([
+                        $seedId,$targetId,$relationshipType
+                    ]);
+                }
+            }
+        }
+    }
+}
+
 function execute_import_review(array $review): array
 {
-    $summary=['total_rows'=>$review['total_rows'],'imported'=>0,'updated'=>0,'skipped'=>0,'errors'=>count(array_filter($review['rows'],fn($row)=>!empty($row['encountered_errors']))),'duplicate_seed_numbers'=>$review['duplicate_seed_numbers'],'missing_required_fields'=>count(array_filter($review['rows'],fn($row)=>!empty($row['encountered_missing_required']))),'manual_review'=>count(array_filter($review['rows'],fn($row)=>!empty($row['encountered_manual_review']))),'row_errors'=>[]];$pdo=db();$staged=[];$pdo->beginTransaction();try{foreach($review['rows']as$item){$p=$item['payload'];$decision=$item['decision'];$existing=$item['existing'];$key=(string)$p['seed_number'];if($decision==='skip'){$summary['skipped']++;continue;}$target=$existing['id']??($staged[$key]??null);$cols=array_values(array_intersect(array_keys($p),seed_columns()));if($decision==='update'){if(!$target)throw new RuntimeException('Update Existing lost its exact target; no rows were saved.');$pdo->prepare('UPDATE seeds SET '.implode(', ',array_map(fn($c)=>"$c=?",$cols)).' WHERE id=?')->execute([...array_map(fn($c)=>$p[$c],$cols),(int)$target]);$seedId=(int)$target;$summary['updated']++;}else{$pdo->prepare('INSERT INTO seeds ('.implode(',',$cols).') VALUES ('.implode(',',array_fill(0,count($cols),'?')).')')->execute(array_map(fn($c)=>$p[$c],$cols));$seedId=(int)$pdo->lastInsertId();$staged[$key]=$seedId;$summary['imported']++;}save_import_location($pdo,$seedId,$p);}$pdo->commit();return$summary;}catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();throw$e;}
+    $summary=['total_rows'=>$review['total_rows'],'imported'=>0,'updated'=>0,'skipped'=>0,'errors'=>count(array_filter($review['rows'],fn($row)=>!empty($row['encountered_errors']))),'duplicate_seed_numbers'=>$review['duplicate_seed_numbers'],'missing_required_fields'=>count(array_filter($review['rows'],fn($row)=>!empty($row['encountered_missing_required']))),'manual_review'=>count(array_filter($review['rows'],fn($row)=>!empty($row['encountered_manual_review']))),'row_errors'=>[]];$pdo=db();$staged=[];$pdo->beginTransaction();try{foreach($review['rows']as$item){$p=$item['payload'];$decision=$item['decision'];$existing=$item['existing'];$key=(string)$p['seed_number'];if($decision==='skip'){$summary['skipped']++;continue;}$target=$existing['id']??($staged[$key]??null);$cols=array_values(array_intersect(array_keys($p),seed_columns()));if($decision==='update'){if(!$target)throw new RuntimeException('Update Existing lost its exact target; no rows were saved.');$pdo->prepare('UPDATE seeds SET '.implode(', ',array_map(fn($c)=>"$c=?",$cols)).' WHERE id=?')->execute([...array_map(fn($c)=>$p[$c],$cols),(int)$target]);$seedId=(int)$target;$summary['updated']++;}else{$pdo->prepare('INSERT INTO seeds ('.implode(',',$cols).') VALUES ('.implode(',',array_fill(0,count($cols),'?')).')')->execute(array_map(fn($c)=>$p[$c],$cols));$seedId=(int)$pdo->lastInsertId();$staged[$key]=$seedId;$summary['imported']++;}save_import_location($pdo,$seedId,$p);save_import_enrichment($pdo,$seedId,$p);}$pdo->commit();return$summary;}catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();throw$e;}
 }
 function import_page(): void
 {
