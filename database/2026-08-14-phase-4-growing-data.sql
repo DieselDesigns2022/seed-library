@@ -30,9 +30,9 @@ DELIMITER ;
 CALL add_phase4_growing_column('days_to_maturity_min', 'SMALLINT UNSIGNED NULL AFTER `days_to_maturity`');
 CALL add_phase4_growing_column('days_to_maturity_max', 'SMALLINT UNSIGNED NULL AFTER `days_to_maturity_min`');
 CALL add_phase4_growing_column('maturity_qualifier', 'VARCHAR(120) NULL AFTER `days_to_maturity_max`');
-CALL add_phase4_growing_column('indoor_start_status', 'ENUM(''Not Recommended'',''Not Applicable'') NULL BEFORE `indoor_start_month`');
-CALL add_phase4_growing_column('direct_sow_status', 'ENUM(''Not Recommended'',''Not Applicable'') NULL BEFORE `direct_sow_start_month`');
-CALL add_phase4_growing_column('transplant_status', 'ENUM(''Not Recommended'',''Not Applicable'') NULL BEFORE `transplant_start_month`');
+CALL add_phase4_growing_column('indoor_start_status', 'ENUM(''Not Recommended'',''Not Applicable'') NULL AFTER `plantable_months`');
+CALL add_phase4_growing_column('direct_sow_status', 'ENUM(''Not Recommended'',''Not Applicable'') NULL AFTER `indoor_end_day`');
+CALL add_phase4_growing_column('transplant_status', 'ENUM(''Not Recommended'',''Not Applicable'') NULL AFTER `direct_sow_end_day`');
 
 DROP PROCEDURE add_phase4_growing_column;
 
