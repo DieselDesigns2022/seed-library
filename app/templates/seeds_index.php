@@ -8,7 +8,7 @@ $location=function(array $s): string { return implode(' · ',array_filter([$s['s
 $months=function(?string $value): string { if(!$value)return 'Not recorded'; return implode(', ',array_map(fn($m)=>month_name((int)$m),explode(',',$value))); };
 $flags=['container_friendly'=>'Container','pollinator_friendly'=>'Pollinator','medicinal'=>'Medicinal','perennial'=>'Perennial','frost_tolerant'=>'Frost','heat_tolerant'=>'Heat','drought_tolerant'=>'Drought','trellis_needed'=>'Trellis'];
 $germination=function(array $s): string { $min=$s['days_to_germination_min']; $max=$s['days_to_germination_max']; if($min===null&&$max===null)return 'Not recorded'; if($min!==null&&$max!==null)return $min===$max?"$min days":"$min–$max days"; return ($min??$max).' days'; };
-$maturity=fn(array $s): string=>$s['days_to_maturity']!==null?$s['days_to_maturity'].' days':'Not recorded';
+$maturity=fn(array $s): string=>maturity_display($s);
 $window=function(array $s): string { $start=date_label($s['planting_start_month'],$s['planting_start_day']); $end=date_label($s['planting_end_month'],$s['planting_end_day']); return $start!==''&&$end!==''?"$start – $end":($start?:$end?:'Not recorded'); };
 $showingStart=$result['total']===0?0:(($result['page']-1)*$result['per_page'])+1;
 $showingEnd=$result['total']===0?0:min($result['total'],$showingStart+count($seeds)-1);
