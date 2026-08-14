@@ -178,12 +178,14 @@ function update_seed(PDO $pdo, array $record, array $allRecords, array &$warning
     foreach (['indoor_start','direct_sow','transplant'] as $prefix) {
         $statusKey = $prefix . '_status';
         $status = $record[$statusKey] ?? null;
-        $rangeColumns = [
-            $prefix . '_start_month',
-            $prefix . '_start_day',
-            $prefix . '_end_month',
-            $prefix . '_end_day',
-        ];
+        $rangeColumns = $prefix === 'indoor_start'
+            ? ['indoor_start_month', 'indoor_start_day', 'indoor_end_month', 'indoor_end_day']
+            : [
+                $prefix . '_start_month',
+                $prefix . '_start_day',
+                $prefix . '_end_month',
+                $prefix . '_end_day',
+            ];
 
         if ($status !== null) {
             $updates[$statusKey] = $status;
