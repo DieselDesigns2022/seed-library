@@ -124,11 +124,17 @@ function current_user(): ?array
     }
     static $user = null;
     if ($user === null) {
-        $stmt = db()->prepare('SELECT id, name, email FROM users WHERE id = ?');
+        $stmt = db()->prepare('SELECT id, name, email, is_owner FROM users WHERE id = ?');
         $stmt->execute([$_SESSION['user_id']]);
         $user = $stmt->fetch() ?: false;
     }
     return $user ?: null;
+}
+
+function require_owner(): void
+{
+    $user=current_user();
+    if(!$user||empty($user['is_owner'])) { http_response_code(403); render('Forbidden',fn()=>print '<div class="alert alert-danger"><h1>Owner access required</h1></div>'); exit; }
 }
 
 function require_auth(): void

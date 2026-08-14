@@ -3,246 +3,152 @@ declare(strict_types=1);
 
 function import_storage_path(): string
 {
-    $configured = trim((string)config('app.imports_path', ''));
-    $candidates = array_values(array_unique(array_filter([$configured, BASE_PATH . '/storage/imports', sys_get_temp_dir() . '/seed-library-imports'])));
-    foreach ($candidates as $directory) {
-        if (!is_dir($directory) && !@mkdir($directory, 0750, true) && !is_dir($directory)) { continue; }
-        if (is_writable($directory)) { return rtrim($directory, DIRECTORY_SEPARATOR); }
+    $configured=trim((string)config('app.imports_path',''));
+    foreach(array_unique(array_filter([$configured,BASE_PATH.'/storage/imports',sys_get_temp_dir().'/seed-library-imports'])) as $directory){
+        if(!is_dir($directory)&&!@mkdir($directory,0750,true)&&!is_dir($directory))continue;
+        if(is_writable($directory))return rtrim($directory,DIRECTORY_SEPARATOR);
     }
-    throw new RuntimeException('No writable import storage directory is available. Configure app.imports_path or grant write access to storage/imports.');
+    throw new RuntimeException('No writable import storage is available.');
 }
-
+function known_workbook_headings(): array
+{
+    return ['Label','Seed','Crop Type','Planting Method','Start Planting Date','Last Suggested Planting Date','Outdoor / Direct Sow / Transplant Window','Germination Time','Days to Harvest / Bloom','Sun','Spacing','Companion Plants','Avoid Planting Near / Watch Outs','Container Friendly','Pollinator Friendly','Medicinal / Herbal Use','Perennial?','Succession / Reusable Notes','Zone 6B Notes','Sources'];
+}
+function is_known_workbook(array $headers): bool { return count(array_intersect(known_workbook_headings(),$headers))>=18 && in_array('Label',$headers,true) && in_array('Seed',$headers,true); }
 function default_import_column(string $header): string
 {
-    $key = strtolower(trim(preg_replace('/\s+/', ' ', str_replace(['_','-'], ' ', $header))));
-    $map = ['seed number'=>'seed_number','seed #'=>'seed_number','seed name'=>'name','plant name'=>'name','variety'=>'variety','category'=>'category_id','plant family'=>'plant_family_id','family'=>'plant_family_id','status'=>'status_id','source'=>'seed_source','seed source'=>'seed_source','seed source/brand'=>'seed_source','packet year'=>'packet_year'];
-    if (isset($map[$key])) return $map[$key];
-    $candidate = strtolower(trim(preg_replace('/[^a-z0-9]+/i','_',$header),'_'));
-    return in_array($candidate,seed_columns(),true) ? $candidate : '';
+    $key=strtolower(trim(preg_replace('/\s+/',' ',str_replace(['_','-'],' ',$header))));
+    $map=['seed number'=>'seed_number','seed #'=>'seed_number','seed no'=>'seed_number','seed name'=>'name','plant name'=>'name','name'=>'name','variety'=>'variety','category'=>'category_id','plant family'=>'plant_family_id','family'=>'plant_family_id','status'=>'status_id','seed status'=>'status_id','source'=>'seed_source','sources'=>'seed_source','seed source'=>'seed_source','seed source/brand'=>'seed_source','packet year'=>'packet_year','storage box'=>'storage_box','container'=>'container','envelope'=>'envelope','row'=>'row_label','slot'=>'slot','storage notes'=>'location_notes','location notes'=>'location_notes','storage/location notes'=>'location_notes'];
+    if(isset($map[$key]))return $map[$key];$candidate=strtolower(trim(preg_replace('/[^a-z0-9]+/i','_',$header),'_'));return in_array($candidate,seed_columns(),true)?$candidate:'';
 }
-
-function resolve_import_lookup(string $column, mixed $value): ?int
+function resolve_import_lookup(string $column,mixed $value): ?int
 {
-    if ($value === null || trim((string)$value) === '') return null;
-    $table = ['category_id'=>'categories','plant_family_id'=>'plant_families','status_id'=>'statuses'][$column] ?? null;
-    if (!$table) return nullable_int($value);
-    if (ctype_digit(trim((string)$value)) && record_exists($table,(int)$value)) return (int)$value;
-    $stmt=db()->prepare("SELECT id FROM $table WHERE LOWER(name)=LOWER(?)"); $stmt->execute([trim((string)$value)]); $id=$stmt->fetchColumn();
-    if ($id===false) throw new RuntimeException(ucwords(str_replace('_id','',$column)).' “'.trim((string)$value).'” was not found.');
-    return (int)$id;
+    if($value===null||trim((string)$value)==='')return null;$table=['category_id'=>'categories','plant_family_id'=>'plant_families','status_id'=>'statuses'][$column]??null;if(!$table)return nullable_int($value);$text=trim((string)$value);
+    if(ctype_digit($text)&&record_exists($table,(int)$text))return(int)$text;$stmt=db()->prepare("SELECT id FROM $table WHERE LOWER(name)=LOWER(?)");$stmt->execute([$text]);$id=$stmt->fetchColumn();if($id===false)throw new RuntimeException(ucwords(str_replace(['_id','_'],' ',$column)).' “'.$text.'” was not found.');return(int)$id;
 }
-
 function parse_csv_file(string $path): array
 {
-    $handle = fopen($path, 'r');
-    if (!$handle) { throw new RuntimeException('Unable to read upload.'); }
-    $headers = fgetcsv($handle) ?: [];
-    $headers = array_map(fn($h) => trim((string)$h), $headers);
-    $rows = [];
-    while (($row = fgetcsv($handle)) !== false) { $rows[] = array_combine($headers, array_pad($row, count($headers), '')); }
-    fclose($handle);
-    return ['headers'=>$headers,'rows'=>$rows];
+    $h=fopen($path,'rb');if(!$h)throw new RuntimeException('Unable to read upload.');$headers=fgetcsv($h)?:[];if(isset($headers[0]))$headers[0]=preg_replace('/^\xEF\xBB\xBF/','',(string)$headers[0]);$headers=array_map(fn($v)=>trim((string)$v),$headers);validate_import_headers($headers);$rows=[];while(($row=fgetcsv($h))!==false){$row=array_slice($row,0,count($headers));$rows[]=array_combine($headers,array_pad($row,count($headers),''));}fclose($h);return compact('headers','rows');
 }
-
-function xlsx_column_index(string $cellRef): int
+function validate_import_headers(array $headers): void {if(!$headers||in_array('',$headers,true)||count(array_unique($headers))!==count($headers))throw new RuntimeException('The header row must contain unique, non-empty column names.');}
+function xlsx_column_index(string $ref): int {preg_match('/^([A-Z]+)/i',$ref,$m);$n=0;foreach(str_split(strtoupper($m[1]??'A'))as$c)$n=$n*26+ord($c)-64;return$n;}
+function xlsx_text_nodes(SimpleXMLElement $node): string { $nodes=$node->xpath('.//*[local-name()="t"]')?:[];return implode('',array_map(static fn($n)=>(string)$n,$nodes)); }
+function xlsx_cell_value(SimpleXMLElement $cell,array $shared): string {$type=(string)$cell['t'];$values=$cell->xpath('./*[local-name()="v"]');$v=(string)($values[0]??'');if($type==='inlineStr')return xlsx_text_nodes($cell);return$type==='s'?($shared[(int)$v]??''):($type==='b'?($v==='1'?'1':'0'):$v);}
+function xlsx_first_worksheet_path(ZipArchive $zip): string
 {
-    if (!preg_match('/^([A-Z]+)/i', $cellRef, $m)) { return 0; }
-    $letters = strtoupper($m[1]); $index = 0;
-    for ($i = 0; $i < strlen($letters); $i++) { $index = $index * 26 + (ord($letters[$i]) - 64); }
-    return $index;
+    $workbook=$zip->getFromName('xl/workbook.xml');$relsRaw=$zip->getFromName('xl/_rels/workbook.xml.rels');if(!$workbook||!$relsRaw)throw new RuntimeException('Invalid XLSX workbook relationships.');
+    $book=simplexml_load_string($workbook,'SimpleXMLElement',LIBXML_NONET);$rels=simplexml_load_string($relsRaw,'SimpleXMLElement',LIBXML_NONET);if(!$book||!$rels)throw new RuntimeException('Invalid XLSX workbook XML.');
+    $sheets=$book->xpath('//*[local-name()="sheet"]');if(!$sheets)throw new RuntimeException('XLSX has no worksheet.');$attrs=$sheets[0]->attributes('http://schemas.openxmlformats.org/officeDocument/2006/relationships');$rid=(string)($attrs['id']??'');
+    foreach($rels->xpath('//*[local-name()="Relationship"]')?:[] as$rel){if((string)$rel['Id']===$rid){$target=(string)$rel['Target'];$path=str_starts_with($target,'/')?ltrim($target,'/'):'xl/'.ltrim($target,'/');$parts=[];foreach(explode('/',$path)as$part){if($part==='..')array_pop($parts);elseif($part!=='.'&&$part!=='')$parts[]=$part;}return implode('/',$parts);}}
+    throw new RuntimeException('The first worksheet relationship is missing.');
 }
-
-function xlsx_cell_value(SimpleXMLElement $cell, array $shared): string
-{
-    $type = (string)$cell['t'];
-    if ($type === 'inlineStr') { return (string)($cell->is->t ?? ''); }
-    $value = (string)($cell->v ?? '');
-    if ($type === 's') { return $shared[(int)$value] ?? ''; }
-    if ($type === 'b') { return $value === '1' ? '1' : '0'; }
-    return $value;
-}
-
 function parse_xlsx_file(string $path): array
 {
-    if (!class_exists('ZipArchive')) { throw new RuntimeException('XLSX import requires PHP ZipArchive.'); }
-    if (!function_exists('simplexml_load_string')) { throw new RuntimeException('XLSX import requires PHP SimpleXML.'); }
-    $zip = new ZipArchive();
-    if ($zip->open($path) !== true) { throw new RuntimeException('Invalid XLSX file.'); }
-    $shared = [];
-    $sharedXml = $zip->getFromName('xl/sharedStrings.xml');
-    if ($sharedXml) {
-        $xml = simplexml_load_string($sharedXml, 'SimpleXMLElement', LIBXML_NONET);
-        if (!$xml) { throw new RuntimeException('Invalid XLSX shared strings.'); }
-        foreach ($xml->si as $si) { $shared[] = (string)($si->t ?? ''); }
-    }
-    $sheetXml = $zip->getFromName('xl/worksheets/sheet1.xml');
-    $zip->close();
-    if (!$sheetXml) { throw new RuntimeException('Missing first worksheet.'); }
-    $xml = simplexml_load_string($sheetXml, 'SimpleXMLElement', LIBXML_NONET);
-    if (!$xml) { throw new RuntimeException('Invalid XLSX worksheet.'); }
-    $matrix=[];
-    foreach ($xml->sheetData->row as $row) {
-        $cells=[];
-        foreach ($row->c as $cell) {
-            $idx = xlsx_column_index((string)$cell['r']);
-            if ($idx <= 0) { $idx = count($cells) + 1; }
-            $cells[$idx - 1] = xlsx_cell_value($cell, $shared);
-        }
-        if ($cells) { ksort($cells); $matrix[] = array_values(array_replace(array_fill(0, max(array_keys($cells)) + 1, ''), $cells)); }
-    }
-    $headers=array_map(fn($h) => trim((string)$h), $matrix[0] ?? []); $rows=[];
-    foreach (array_slice($matrix,1) as $row) { $rows[] = array_combine($headers, array_pad($row, count($headers), '')); }
-    return ['headers'=>$headers,'rows'=>$rows];
+    if(!class_exists('ZipArchive')||!function_exists('simplexml_load_string'))throw new RuntimeException('XLSX import requires PHP ZipArchive and SimpleXML.');$zip=new ZipArchive();if($zip->open($path)!==true)throw new RuntimeException('Invalid XLSX file.');$shared=[];
+    if($raw=$zip->getFromName('xl/sharedStrings.xml')){$xml=simplexml_load_string($raw,'SimpleXMLElement',LIBXML_NONET);if(!$xml)throw new RuntimeException('Invalid XLSX shared strings.');foreach($xml->xpath('/*[local-name()="sst"]/*[local-name()="si"]')?:[] as$si)$shared[]=xlsx_text_nodes($si);}
+    $sheetPath=xlsx_first_worksheet_path($zip);$raw=$zip->getFromName($sheetPath);$zip->close();if(!$raw||!($xml=simplexml_load_string($raw,'SimpleXMLElement',LIBXML_NONET)))throw new RuntimeException('Invalid first worksheet.');$matrix=[];
+    foreach($xml->xpath('//*[local-name()="sheetData"]/*[local-name()="row"]')?:[] as$row){$cells=[];foreach($row->xpath('./*[local-name()="c"]')?:[] as$cell)$cells[xlsx_column_index((string)$cell['r'])-1]=xlsx_cell_value($cell,$shared);if($cells){$matrix[]=array_replace(array_fill(0,max(array_keys($cells))+1,''),$cells);}}
+    $headers=array_map(fn($v)=>trim((string)$v),$matrix[0]??[]);validate_import_headers($headers);$rows=[];foreach(array_slice($matrix,1)as$row)$rows[]=array_combine($headers,array_pad($row,count($headers),''));return compact('headers','rows');
 }
-
-function reconcile_import_perennial(array $payload, ?string $existingStatus = null): array
+function parse_import_file(string $file,string $ext): array{return$ext==='xlsx'?parse_xlsx_file($file):parse_csv_file($file);}
+function parse_known_month_day(string $value): ?array
 {
-    $status=array_key_exists('perennial_status',$payload) ? $payload['perennial_status'] : $existingStatus;
-    if ($status!==null && $status!=='') $payload['perennial']=$status==='Perennial'?1:0;
-    return $payload;
+    $value=trim(preg_replace('/(\d)(st|nd|rd|th)\b/i','$1',$value));if($value==='')return null;$months=['jan'=>1,'feb'=>2,'mar'=>3,'apr'=>4,'may'=>5,'jun'=>6,'jul'=>7,'aug'=>8,'sep'=>9,'sept'=>9,'oct'=>10,'nov'=>11,'dec'=>12];
+    if(preg_match('/\b([A-Za-z]+)\D+(\d{1,2})\b/',$value,$m)){$key=substr(strtolower($m[1]),0,3);$month=$months[$key]??null;$day=(int)$m[2];if($month&&checkdate($month,$day,2000))return[$month,$day];}
+    if(preg_match('/^(\d{1,2})[\/-](\d{1,2})$/',$value,$m)&&checkdate((int)$m[1],(int)$m[2],2000))return[(int)$m[1],(int)$m[2]];return null;
 }
-
+function known_method(string $value): array
+{
+    $v=strtolower(trim($value));if($v==='')return[null,'Planting Method is missing.'];$indoor=str_contains($v,'indoor');$direct=str_contains($v,'direct sow')||preg_match('/\bsow outdoors?\b/',$v);$trans=str_contains($v,'transplant');
+    if($direct&&$trans&&!$indoor)return['Direct Sow or Transplant',null];if($direct&&!$indoor&&!$trans)return['Direct Sow',null];if($indoor&&!$direct&&!$trans)return['Start Indoors',null];if($trans&&!$direct&&!$indoor)return['Transplant',null];return[null,'Planting Method “'.trim($value).'” is ambiguous; choose an allowed method.'];
+}
+function known_bool(string $value): ?int {$v=strtolower(trim($value));if($v==='')return null;if(in_array($v,['yes','y','true','1','✓','x'],true))return 1;if(in_array($v,['no','n','false','0'],true))return 0;return null;}
+function known_int_range(string $value): array {$numbers=[];preg_match_all('/\d+/',$value,$m);foreach($m[0]??[]as$n)$numbers[]=(int)$n;return$numbers;}
+function known_date_range(string $value): ?array
+{
+    if(!preg_match_all('/(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\D+(\d{1,2})/i',$value,$matches,PREG_SET_ORDER)||count($matches)!==2)return null;
+    $start=parse_known_month_day($matches[0][1].' '.$matches[0][2]);$end=parse_known_month_day($matches[1][1].' '.$matches[1][2]);return$start&&$end?[$start,$end]:null;
+}
+function append_original_note(array &$payload,string $heading,string $value): void {if(trim($value)==='')return;$line=$heading.': '.trim($value);$payload['notes']=trim((string)($payload['notes']??''));$payload['notes'].=($payload['notes']===''?'':"\n").$line;}
+function transform_known_workbook_row(array $row): array
+{
+    $p=['seed_number'=>(string)($row['Label']??'')];$seed=trim((string)($row['Seed']??''));if(str_contains($seed,';')){[$p['name'],$p['variety']]=array_map('trim',explode(';',$seed,2));}else$p['name']=$seed;$p['plant_type']=trim((string)($row['Crop Type']??''));[$p['planting_method'],$methodReason]=known_method((string)($row['Planting Method']??''));$reasons=array_filter([$methodReason]);
+    foreach([['Start Planting Date','planting_start'],['Last Suggested Planting Date','planting_end']]as[$heading,$prefix]){$raw=(string)($row[$heading]??'');$date=parse_known_month_day($raw);if($date){[$p[$prefix.'_month'],$p[$prefix.'_day']]=$date;}elseif(trim($raw)!==''){$reasons[]=$heading.' “'.$raw.'” could not be parsed; correct it.';append_original_note($p,$heading,$raw);}}
+    $g=known_int_range((string)($row['Germination Time']??''));if($g){$p['days_to_germination_min']=$g[0];$p['days_to_germination_max']=$g[1]??$g[0];} $h=known_int_range((string)($row['Days to Harvest / Bloom']??''));if(count($h)===1)$p['days_to_maturity']=$h[0];elseif(trim((string)($row['Days to Harvest / Bloom']??''))!=='')append_original_note($p,'Days to Harvest / Bloom',(string)$row['Days to Harvest / Bloom']);
+    $p['sun_requirements']=trim((string)($row['Sun']??''));$p['spacing']=trim((string)($row['Spacing']??''));$p['seed_source']=trim((string)($row['Sources']??''));
+    foreach(['Container Friendly'=>'container_friendly','Pollinator Friendly'=>'pollinator_friendly','Medicinal / Herbal Use'=>'medicinal']as$heading=>$field){$raw=(string)($row[$heading]??'');$bool=known_bool($raw);if($bool!==null)$p[$field]=$bool;elseif(trim($raw)!==''){append_original_note($p,$heading,$raw);$reasons[]="$heading needs review.";}}
+    $life=strtolower(trim((string)($row['Perennial?']??'')));if(in_array($life,['yes','perennial'],true))$p['perennial_status']='Perennial';elseif(in_array($life,['no','annual'],true))$p['perennial_status']='Annual';elseif($life==='biennial')$p['perennial_status']='Biennial';elseif($life!==''){append_original_note($p,'Perennial?',(string)$row['Perennial?']);$reasons[]='Perennial? needs review.';}
+    $window=(string)($row['Outdoor / Direct Sow / Transplant Window']??'');$range=known_date_range($window);$prefix=match($p['planting_method']??null){'Direct Sow'=>'direct_sow','Transplant'=>'transplant',default=>null};if($range&&$prefix){[[$p[$prefix.'_start_month'],$p[$prefix.'_start_day']],[$p[$prefix.'_end_month'],$p[$prefix.'_end_day']]]=$range;}elseif(trim($window)!==''&&!$range)$reasons[]='Outdoor / Direct Sow / Transplant Window could not be safely structured and was preserved in Notes.';
+    foreach(['Outdoor / Direct Sow / Transplant Window','Companion Plants','Avoid Planting Near / Watch Outs','Succession / Reusable Notes','Zone 6B Notes']as$heading)append_original_note($p,$heading,(string)($row[$heading]??''));$succ=known_int_range((string)($row['Succession / Reusable Notes']??''));if(count($succ)===1&&preg_match('/\b(days?|every)\b/i',(string)$row['Succession / Reusable Notes']))$p['succession_days']=$succ[0];
+    $reasons[]='Category must be selected; lookup values are never invented.';return['payload'=>$p,'reasons'=>array_values(array_unique($reasons))];
+}
+function import_location_columns(): array {return ['storage_box','container','envelope','row_label','slot','location_notes'];}
+function import_destination_columns(): array {return array_merge(seed_columns(),import_location_columns());}
+function reconcile_import_perennial(array $p,?string $existing=null): array {$status=array_key_exists('perennial_status',$p)?$p['perennial_status']:$existing;if($status!==null&&$status!=='')$p['perennial']=$status==='Perennial'?1:0;return$p;}
 function normalize_import_payload(array $payload): array
 {
-    $normalized = [];
-    foreach (seed_columns() as $column) {
-        if (!array_key_exists($column, $payload)) { continue; }
-        $rawValue=$payload[$column];
-        $value = $column==='seed_number' ? $rawValue : (is_string($rawValue) ? trim($rawValue) : $rawValue);
-        if ($column==='plantable_months') {
-            $normalized[$column]=normalize_plantable_months($value);
-        } elseif (in_array($column, seed_boolean_columns(), true)) {
-            $normalized[$column] = in_array(strtolower((string)$value), ['1','yes','true','y','on'], true) ? 1 : 0;
-        } elseif (in_array($column, ['category_id','plant_family_id','status_id'], true)) {
-            $normalized[$column] = resolve_import_lookup($column, $value);
-        } elseif (in_array($column, seed_integer_columns(), true)) {
-            $normalized[$column] = seed_nullable_int($value, ucwords(str_replace('_', ' ', $column)));
-        } else {
-            $normalized[$column] = $value === '' ? null : $value;
-        }
-    }
-    return reconcile_import_perennial($normalized);
+    $out=[];foreach(import_destination_columns()as$c){if(!array_key_exists($c,$payload))continue;$raw=$payload[$c];$v=$c==='seed_number'?(string)$raw:(is_string($raw)?trim($raw):$raw);if($c==='plantable_months')$out[$c]=normalize_plantable_months($v);elseif(in_array($c,seed_boolean_columns(),true)){$b=strtolower((string)$v);if($b!==''&&!in_array($b,['0','1','yes','no','true','false','y','n','on','off'],true))throw new RuntimeException(ucwords(str_replace('_',' ',$c)).' must be Yes or No.');$out[$c]=in_array($b,['1','yes','true','y','on'],true)?1:0;}elseif(in_array($c,['category_id','plant_family_id','status_id'],true))$out[$c]=resolve_import_lookup($c,$v);elseif(in_array($c,seed_integer_columns(),true))$out[$c]=seed_nullable_int($v,ucwords(str_replace('_',' ',$c)));else$out[$c]=$v===''?null:$v;}return reconcile_import_perennial($out);
 }
-
+function import_base_validation(array $payload): array {$base=array_fill_keys(seed_columns(),null);foreach(seed_boolean_columns()as$f)$base[$f]=0;$errors=validate_seed(array_merge($base,$payload));foreach(['storage_box'=>120,'container'=>120,'envelope'=>120,'row_label'=>80,'slot'=>80]as$f=>$limit)if(mb_strlen((string)($payload[$f]??''))>$limit)$errors[]=ucwords(str_replace('_',' ',$f))." must be $limit characters or fewer.";return array_values(array_unique($errors));}
+function import_validate_rows(array $parsed,array $mapping,string $action): array
+{
+    $result=['total_rows'=>count($parsed['rows']),'rows'=>[],'errors'=>[],'duplicate_seed_numbers'=>0,'missing_required_fields'=>0,'manual_review'=>0,'default_duplicate_action'=>$action];$known=is_known_workbook($parsed['headers']);
+    foreach($parsed['rows']as$i=>$rawRow){$number=$i+2;$payload=[];$reasons=[];try{if($known){$derived=transform_known_workbook_row($rawRow);$payload=$derived['payload'];$reasons=$derived['reasons'];}else{foreach($mapping as$source=>$dest){$raw=(string)($rawRow[$source]??'');if(in_array($dest,import_destination_columns(),true))$payload[$dest]=$raw;elseif($dest===''&&trim($raw)!=='')append_original_note($payload,$source,$raw);}}$payload=normalize_import_payload($payload);$reasons=array_merge($reasons,import_base_validation($payload));}catch(Throwable $e){$reasons[]=$e instanceof RuntimeException?$e->getMessage():'The row could not be normalized.';}
+        $result['rows'][]=['row'=>$number,'raw'=>$rawRow,'payload'=>$payload,'existing'=>null,'within_file_duplicate'=>false,'decision'=>'import','reasons'=>array_values(array_unique($reasons))];}
+    $result=revalidate_import_review($result,false);
+    foreach($result['rows']as&$item){$item['encountered_errors']=$item['reasons']!==[];$item['encountered_missing_required']=(bool)array_filter($item['reasons'],fn($reason)=>str_contains(strtolower($reason),'required'));$item['encountered_manual_review']=$item['reasons']!==[]||$item['decision']==='';}unset($item);
+    return$result;
+}
+function apply_review_corrections(array $review,array $post): array
+{
+    foreach($review['rows']as&$item){$edit=(array)($post['rows'][(string)$item['row']]??[]);$item['decision']=(string)($edit['decision']??$item['decision']);try{if(isset($edit['payload_json'])){$decoded=json_decode((string)$edit['payload_json'],true,512,JSON_THROW_ON_ERROR);if(!is_array($decoded))throw new RuntimeException('Mapped data must be a JSON object.');$item['payload']=array_intersect_key($decoded,array_flip(import_destination_columns()));}foreach(array_merge(seed_columns(),import_location_columns())as$f)if(array_key_exists($f,$edit))$item['payload'][$f]=$edit[$f];$item['payload']=normalize_import_payload($item['payload']);$item['reasons']=$item['decision']==='skip'?[]:import_base_validation($item['payload']);}catch(Throwable $e){$item['reasons']=$item['decision']==='skip'?[]:[$e instanceof RuntimeException?$e->getMessage():'The row could not be normalized.'];}$item['encountered_errors']=!empty($item['encountered_errors'])||$item['reasons']!==[];$item['encountered_missing_required']=!empty($item['encountered_missing_required'])||(bool)array_filter($item['reasons'],fn($reason)=>str_contains(strtolower($reason),'required'));$item['encountered_manual_review']=!empty($item['encountered_manual_review'])||$item['reasons']!==[]||$item['decision']==='';}unset($item);return revalidate_import_review($review,true);
+}
+function revalidate_import_review(array $review,bool $afterEdits): array
+{
+    $stmt=db()->prepare('SELECT id, perennial_status FROM seeds WHERE seed_number=? ORDER BY id LIMIT 1');$seen=[];$duplicates=0;$missing=0;$manual=0;
+    foreach($review['rows']as&$item){$item['existing']=null;$item['within_file_duplicate']=false;$key=(string)($item['payload']['seed_number']??'');$stmt->execute([$key]);$existing=$stmt->fetch()?:null;$within=isset($seen[$key]);$duplicate=(bool)$existing||$within;if(!$afterEdits){$action=(string)($review['default_duplicate_action']??'skip');$item['decision']=$duplicate?($action==='manual'?'':$action):'import';}if($duplicate)$duplicates++;if($item['decision']==='skip')continue;$item['existing']=$existing;$item['within_file_duplicate']=$within;
+        if($item['decision']==='update'&&!$existing&&!$within)$item['reasons'][]='Update Existing requires an exact database or earlier staged Seed Number target.';
+        if(!in_array($item['decision'],['skip','update','import'],true))$item['reasons'][]='Choose Skip, Update Existing, or Import as New Anyway.';
+        $item['reasons']=array_values(array_unique($item['reasons']));$hasMissing=(bool)array_filter($item['reasons'],fn($v)=>str_contains(strtolower($v),'required'));$item['encountered_errors']=!empty($item['encountered_errors'])||$item['reasons']!==[];$item['encountered_missing_required']=!empty($item['encountered_missing_required'])||$hasMissing;$item['encountered_manual_review']=!empty($item['encountered_manual_review'])||$item['reasons']!==[]||$item['decision']==='';if($item['reasons'])$manual++;if($hasMissing)$missing++;$seen[$key]=true;
+    }unset($item);$review['duplicate_seed_numbers']=$duplicates;$review['missing_required_fields']=$missing;$review['manual_review']=$manual;$review['errors']=[];return$review;
+}
+function save_import_location(PDO $pdo,int $seedId,array $payload): void
+{
+    $location=array_intersect_key($payload,array_flip(import_location_columns()));if(!$location)return;$databaseNames=['location_notes'=>'notes'];$columns=[];$values=[];
+    foreach($location as$field=>$value){$columns[]=$databaseNames[$field]??$field;$values[]=($value===null||trim((string)$value)==='')?null:trim((string)$value);}
+    $quoted=implode(',',array_map(fn($column)=>"`$column`",$columns));$updates=implode(',',array_map(fn($column)=>"`$column`=VALUES(`$column`)",$columns));
+    $pdo->prepare('INSERT INTO seed_locations (seed_id,'.$quoted.') VALUES ('.implode(',',array_fill(0,count($columns)+1,'?')).') ON DUPLICATE KEY UPDATE '.$updates)->execute([$seedId,...$values]);
+}
+function execute_import_review(array $review): array
+{
+    $summary=['total_rows'=>$review['total_rows'],'imported'=>0,'updated'=>0,'skipped'=>0,'errors'=>count(array_filter($review['rows'],fn($row)=>!empty($row['encountered_errors']))),'duplicate_seed_numbers'=>$review['duplicate_seed_numbers'],'missing_required_fields'=>count(array_filter($review['rows'],fn($row)=>!empty($row['encountered_missing_required']))),'manual_review'=>count(array_filter($review['rows'],fn($row)=>!empty($row['encountered_manual_review']))),'row_errors'=>[]];$pdo=db();$staged=[];$pdo->beginTransaction();try{foreach($review['rows']as$item){$p=$item['payload'];$decision=$item['decision'];$existing=$item['existing'];$key=(string)$p['seed_number'];if($decision==='skip'){$summary['skipped']++;continue;}$target=$existing['id']??($staged[$key]??null);$cols=array_values(array_intersect(array_keys($p),seed_columns()));if($decision==='update'){if(!$target)throw new RuntimeException('Update Existing lost its exact target; no rows were saved.');$pdo->prepare('UPDATE seeds SET '.implode(', ',array_map(fn($c)=>"$c=?",$cols)).' WHERE id=?')->execute([...array_map(fn($c)=>$p[$c],$cols),(int)$target]);$seedId=(int)$target;$summary['updated']++;}else{$pdo->prepare('INSERT INTO seeds ('.implode(',',$cols).') VALUES ('.implode(',',array_fill(0,count($cols),'?')).')')->execute(array_map(fn($c)=>$p[$c],$cols));$seedId=(int)$pdo->lastInsertId();$staged[$key]=$seedId;$summary['imported']++;}save_import_location($pdo,$seedId,$p);}$pdo->commit();return$summary;}catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();throw$e;}
+}
 function import_page(): void
 {
-    if (is_post()) {
-        verify_csrf();
-        $step = $_POST['step'] ?? 'upload';
-        if ($step === 'upload') {
-            $upload = $_FILES['seed_file'] ?? null;
-            if (!$upload || ($upload['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || empty($upload['tmp_name'])) { flash('danger','Choose a CSV or XLSX file.'); redirect('import'); }
-            if (($upload['size'] ?? 0) > 10 * 1024 * 1024) { flash('danger','Import file must be 10 MB or smaller.'); redirect('import'); }
-            $name = basename($upload['name']); $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
-            if (!in_array($ext, ['csv','xlsx'], true)) { flash('danger','Only CSV and XLSX are supported.'); redirect('import'); }
-            try { $directory=import_storage_path(); }
-            catch (RuntimeException $e) { flash('danger','Imports are temporarily unavailable because no writable upload location is available. Contact the administrator.'); redirect('import'); }
-            $target=$directory.'/'.bin2hex(random_bytes(8)).'.'.$ext;
-            if (!move_uploaded_file($upload['tmp_name'], $target)) { flash('danger','The uploaded file could not be saved. Please try again or contact the administrator.'); redirect('import'); }
-            $_SESSION['import_file'] = $target; $_SESSION['import_ext'] = $ext;
-            redirect('import?step=map');
-        }
-        if ($step === 'import') {
-            $file = $_SESSION['import_file'] ?? ''; $ext = $_SESSION['import_ext'] ?? 'csv';
-            if (!is_string($file) || !is_file($file)) { flash('danger','Import file no longer exists. Upload it again.'); redirect('import'); }
-            $parsed = $ext === 'xlsx' ? parse_xlsx_file($file) : parse_csv_file($file);
-            $mapping = $_POST['map'] ?? []; $duplicateAction = $_POST['duplicate_action'] ?? 'skip';
-            if (!in_array($duplicateAction, ['skip','update','import','manual'], true)) { $duplicateAction = 'skip'; }
-            $summary = ['imported'=>0,'updated'=>0,'skipped'=>0,'manual_review'=>0,'errors'=>[]];
-            $_SESSION['manual_review_rows'] = [];
-            $pdo=null;
-            try {
-                $pdo=db();
-                $existingStmt=$pdo->prepare('SELECT id, perennial_status FROM seeds WHERE seed_number=? LIMIT 1');
-                $pdo->beginTransaction();
-                foreach ($parsed['rows'] as $index => $row) {
-                    $payload = [];
-                    foreach ($mapping as $source => $dest) { if ($dest !== '') { $payload[$dest] = $row[$source] ?? null; } }
-                    $rowNumber = $index + 2;
-                    try { $payload = normalize_import_payload($payload); }
-                    catch (PDOException $e) { throw $e; }
-                    catch (RuntimeException $e) { $summary['errors'][] = 'Row ' . $rowNumber . ': ' . $e->getMessage(); $summary['skipped']++; continue; }
-                    $base = array_fill_keys(seed_columns(), null);
-                    foreach (seed_boolean_columns() as $flag) { $base[$flag] = 0; }
-                    $validationData = array_merge($base, $payload);
-                    $errors = validate_seed($validationData);
-                    if ($errors) { $summary['errors'][] = 'Row ' . $rowNumber . ': ' . implode(' ', $errors); $summary['skipped']++; continue; }
-                    $existingStmt->execute([$payload['seed_number']]); $existing=$existingStmt->fetch(); $existingId=$existing['id']??false;
-                    if ($existingId && $duplicateAction === 'skip') { $summary['skipped']++; continue; }
-                    if ($existingId && $duplicateAction === 'manual') { $summary['manual_review']++; $_SESSION['manual_review_rows'][] = ['row'=>$rowNumber, 'seed_number'=>$payload['seed_number'], 'data'=>$payload]; continue; }
-                    if ($existingId && $duplicateAction==='update') $payload=reconcile_import_perennial($payload,$existing['perennial_status']??null);
-                    $columns = array_values(array_intersect(array_keys($payload), seed_columns()));
-                    $data = array_map(fn($c)=>$payload[$c], $columns);
-                    if ($existingId && $duplicateAction === 'update') { $assign=implode(', ', array_map(fn($c)=>"$c=?", $columns)); db()->prepare("UPDATE seeds SET $assign WHERE id=?")->execute([...$data, $existingId]); $summary['updated']++; }
-                    else { $ph=implode(',', array_fill(0,count($columns),'?')); db()->prepare('INSERT INTO seeds ('.implode(',',$columns).") VALUES ($ph)")->execute($data); $summary['imported']++; }
-                }
-                $pdo->commit();
-            } catch (PDOException $e) {
-                if ($pdo instanceof PDO && $pdo->inTransaction()) $pdo->rollBack();
-                error_log((string)$e);
-                $summary['errors'][]='The import could not be completed because of a database error. No rows from this import were saved.';
-                $_SESSION['import_summary']=$summary; flash('danger','Import failed. No rows were saved.'); redirect('import?step=summary');
-            } catch (Throwable $e) {
-                if ($pdo instanceof PDO && $pdo->inTransaction()) $pdo->rollBack();
-                throw $e;
-            }
-            $_SESSION['import_summary'] = $summary; flash('success','Import complete.'); redirect('import?step=summary');
-        }
-    }
-    $step = $_GET['step'] ?? 'upload';
-    render('Import Seeds', function () use ($step) {
-        if ($step === 'map' && !empty($_SESSION['import_file'])) { $parsed = $_SESSION['import_ext'] === 'xlsx' ? parse_xlsx_file($_SESSION['import_file']) : parse_csv_file($_SESSION['import_file']); $columns = seed_columns(); ?>
-        <h1>Map Columns</h1><form method="post" class="card card-body"><?= csrf_field() ?><input type="hidden" name="step" value="import"><div class="table-responsive"><table class="table"><thead><tr><th>Uploaded Column</th><th>Maps To</th><th>Preview</th></tr></thead><tbody><?php foreach($parsed['headers'] as $h): ?><tr><td><?= e($h) ?></td><td><select class="form-select" name="map[<?= e($h) ?>]"><option value="">Ignore</option><?php foreach($columns as $c): ?><option value="<?= e($c) ?>" <?= default_import_column($h)===$c?'selected':'' ?>><?= e($c) ?></option><?php endforeach; ?></select></td><td><?= e($parsed['rows'][0][$h] ?? '') ?></td></tr><?php endforeach; ?></tbody></table></div><label class="form-label">Duplicate seed numbers</label><select class="form-select mb-3" name="duplicate_action"><option value="skip">Skip</option><option value="update">Update Existing</option><option value="import">Import Anyway</option><option value="manual">Manual Review</option></select><button class="btn btn-success">Validate & Import</button></form>
-        <?php } elseif ($step === 'summary') { $s = $_SESSION['import_summary'] ?? []; $manual = $_SESSION['manual_review_rows'] ?? []; ?><h1>Import Summary</h1><div class="card card-body"><pre><?= e(json_encode($s, JSON_PRETTY_PRINT)) ?></pre><?php if($manual): ?><h2 class="h5">Manual review rows</h2><div class="table-responsive"><table class="table"><thead><tr><th>Row</th><th>Seed #</th><th>Mapped data</th></tr></thead><tbody><?php foreach($manual as $r): ?><tr><td><?= e($r['row']) ?></td><td><?= e($r['seed_number']) ?></td><td><code><?= e(json_encode($r['data'])) ?></code></td></tr><?php endforeach; ?></tbody></table></div><?php endif; ?></div><?php }
-        else { ?><h1>Import Seeds</h1><form method="post" enctype="multipart/form-data" class="card card-body col-lg-6"><?= csrf_field() ?><input type="hidden" name="step" value="upload"><p class="text-muted">Upload CSV or XLSX, preview columns, map fields, choose duplicate handling, then import. Maximum upload size: 10 MB.</p><input class="form-control mb-3" type="file" name="seed_file" accept=".csv,.xlsx" required><button class="btn btn-success">Upload</button></form><?php }
-    });
+    if(is_post()){verify_csrf();$step=(string)($_POST['step']??'upload');if($step==='upload'){$u=$_FILES['seed_file']??null;if(!$u||($u['error']??UPLOAD_ERR_NO_FILE)!==UPLOAD_ERR_OK||empty($u['tmp_name'])){flash('danger','Choose a CSV or XLSX file.');redirect('import');}if(($u['size']??0)>10*1024*1024){flash('danger','Import file must be 10 MB or smaller.');redirect('import');}$ext=strtolower(pathinfo(basename((string)$u['name']),PATHINFO_EXTENSION));if(!in_array($ext,['csv','xlsx'],true)){flash('danger','Only CSV and XLSX files are supported.');redirect('import');}try{$target=import_storage_path().'/'.bin2hex(random_bytes(16)).'.'.$ext;if(!move_uploaded_file($u['tmp_name'],$target))throw new RuntimeException();parse_import_file($target,$ext);}catch(Throwable $e){if(isset($target)&&is_file($target))@unlink($target);flash('danger','The upload is invalid or could not be safely stored.');redirect('import');}$_SESSION['import_file']=$target;$_SESSION['import_ext']=$ext;unset($_SESSION['import_review']);redirect('import?step=map');}
+        if($step==='validate'){$file=$_SESSION['import_file']??'';if(!is_string($file)||!is_file($file)){flash('danger','Upload expired.');redirect('import');}$mapping=(array)($_POST['map']??[]);$dest=array_filter(array_values($mapping));if(count($dest)!==count(array_unique($dest))){flash('danger','Each destination field may be mapped only once.');redirect('import?step=map');}$action=(string)($_POST['duplicate_action']??'skip');if(!in_array($action,['skip','update','import','manual'],true))$action='skip';$review=import_validate_rows(parse_import_file($file,(string)$_SESSION['import_ext']),$mapping,$action);$review['action']=$action;$_SESSION['import_review']=$review;redirect('import?step=review');}
+        if($step==='confirm'){if(($_POST['confirm']??'')!=='IMPORT'){flash('danger','Type IMPORT to confirm.');redirect('import?step=review');}$review=$_SESSION['import_review']??null;if(!is_array($review)){flash('danger','Review expired.');redirect('import');}$review=apply_review_corrections($review,$_POST);$_SESSION['import_review']=$review;$unresolved=array_filter($review['rows'],fn($r)=>$r['reasons']!==[]);if($unresolved){flash('danger','Resolve every highlighted row before import. No rows were saved.');redirect('import?step=review');}try{$summary=execute_import_review($review);}catch(Throwable $e){error_log((string)$e);flash('danger','Import failed safely; no rows were saved.');redirect('import?step=review');}if(is_file((string)($_SESSION['import_file']??'')))@unlink($_SESSION['import_file']);unset($_SESSION['import_file'],$_SESSION['import_review']);$_SESSION['import_summary']=$summary;redirect('import?step=summary');}}
+    $step=(string)($_GET['step']??'upload');render('Import Seeds',function()use($step){if($step==='map'&&!empty($_SESSION['import_file'])){$parsed=parse_import_file($_SESSION['import_file'],$_SESSION['import_ext']);$known=is_known_workbook($parsed['headers']);?><h1>Preview &amp; Map Columns</h1><?php if($known):?><div class="alert alert-info">Recognized a known 20-column workbook layout. Label, Seed, dates, methods, flags, notes, and Sources will use the compatibility importer. Category and ambiguous values are corrected during review.</div><?php endif?><form method="post" class="card card-body"><?=csrf_field()?><input type="hidden" name="step" value="validate"><table class="table"><thead><tr><th>Uploaded Column</th><th>Map To</th><th>Preview</th></tr></thead><tbody><?php foreach($parsed['headers']as$h):?><tr><td><?=e($h)?></td><td><?php if($known):?>Compatibility transform<?php else:?><select class="form-select" name="map[<?=e($h)?>]"><option value="">Preserve in Notes</option><?php foreach(import_destination_columns()as$c):?><option value="<?=e($c)?>" <?=default_import_column($h)===$c?'selected':''?>><?=e(ucwords(str_replace('_',' ',$c)))?></option><?php endforeach?></select><?php endif?></td><td><?=e($parsed['rows'][0][$h]??'')?></td></tr><?php endforeach?></tbody></table><label class="form-label">Duplicate action</label><select class="form-select mb-3" name="duplicate_action"><option value="skip">Skip Duplicate</option><option value="update">Update Existing</option><option value="import">Import as New Anyway</option><option value="manual">Review Manually</option></select><button class="btn btn-success">Validate Rows</button></form><?php
+        }elseif($step==='review'&&is_array($_SESSION['import_review']??null)){$r=$_SESSION['import_review'];$categories=db()->query('SELECT id,name FROM categories ORDER BY name')->fetchAll();?><h1>Review &amp; Resolve Rows</h1><?php if($r['errors']):?><div class="alert alert-danger"><ul><?php foreach($r['errors']as$err):?><li>Row <?=e($err['row'])?>: <?=e($err['message'])?></li><?php endforeach?></ul></div><?php endif?><form method="post"><?=csrf_field()?><input type="hidden" name="step" value="confirm"><div class="table-responsive"><table class="table align-middle"><thead><tr><th>Row / Reason</th><th>Seed Number</th><th>Name / Variety</th><th>Category</th><th>Method</th><th>Start / Last</th><th>Decision</th><th>Mapped / Derived Data</th></tr></thead><tbody><?php foreach($r['rows']as$item):$p=$item['payload'];$n=$item['row'];?><tr class="<?=$item['reasons']?'table-warning':''?>"><td><strong><?=e($n)?></strong><?php foreach($item['reasons']as$reason):?><div class="text-danger small"><?=e($reason)?></div><?php endforeach?></td><td><input class="form-control" name="rows[<?=$n?>][seed_number]" value="<?=e($p['seed_number']??'')?>"></td><td><input class="form-control mb-1" name="rows[<?=$n?>][name]" value="<?=e($p['name']??'')?>"><input class="form-control" name="rows[<?=$n?>][variety]" value="<?=e($p['variety']??'')?>"></td><td><select class="form-select" name="rows[<?=$n?>][category_id]"><option value="">Choose</option><?php foreach($categories as$c):?><option value="<?=$c['id']?>" <?=($p['category_id']??'')==$c['id']?'selected':''?>><?=e($c['name'])?></option><?php endforeach?></select></td><td><select class="form-select" name="rows[<?=$n?>][planting_method]"><option value="">Choose</option><?php foreach(['Direct Sow','Start Indoors','Transplant','Direct Sow or Transplant']as$m):?><option <?=($p['planting_method']??'')===$m?'selected':''?>><?=e($m)?></option><?php endforeach?></select></td><td><?php foreach(['planting_start'=>'Start','planting_end'=>'Last']as$pre=>$label):?><div class="input-group mb-1"><span class="input-group-text"><?=$label?></span><input class="form-control" type="number" min="1" max="12" name="rows[<?=$n?>][<?=$pre?>_month]" value="<?=e($p[$pre.'_month']??'')?>"><input class="form-control" type="number" min="1" max="31" name="rows[<?=$n?>][<?=$pre?>_day]" value="<?=e($p[$pre.'_day']??'')?>"></div><?php endforeach?></td><td><select class="form-select" name="rows[<?=$n?>][decision]"><option value="">Resolve</option><option value="skip" <?=$item['decision']==='skip'?'selected':''?>>Skip</option><option value="update" <?=$item['decision']==='update'?'selected':''?>>Update Existing</option><option value="import" <?=$item['decision']==='import'?'selected':''?>>Import as New</option></select></td><td><details><summary>View / correct derived data</summary><label class="small">Source</label><input class="form-control mb-1" name="rows[<?=$n?>][seed_source]" value="<?=e($p['seed_source']??'')?>"><?php foreach(['container_friendly'=>'Container','pollinator_friendly'=>'Pollinator','medicinal'=>'Medicinal']as$f=>$label):?><label class="small"><?=$label?></label><select class="form-select mb-1" name="rows[<?=$n?>][<?=$f?>]"><option value="">Not set</option><option value="1" <?=($p[$f]??null)===1?'selected':''?>>Yes</option><option value="0" <?=($p[$f]??null)===0?'selected':''?>>No</option></select><?php endforeach?><label class="small">Lifecycle</label><select class="form-select mb-1" name="rows[<?=$n?>][perennial_status]"><option value="">Not set</option><?php foreach(['Annual','Biennial','Perennial']as$life):?><option <?=($p['perennial_status']??'')===$life?'selected':''?>><?=$life?></option><?php endforeach?></select><?php foreach(['storage_box'=>'Storage Box','container'=>'Container','envelope'=>'Envelope','row_label'=>'Row','slot'=>'Slot','location_notes'=>'Storage/Location Notes']as$f=>$label):if(!array_key_exists($f,$p))continue;?><label class="small"><?=$label?> (supplied)</label><?php if($f==='location_notes'):?><textarea class="form-control mb-1" name="rows[<?=$n?>][<?=$f?>]"><?=e($p[$f]??'')?></textarea><?php else:?><input class="form-control mb-1" name="rows[<?=$n?>][<?=$f?>]" value="<?=e($p[$f]??'')?>"><?php endif?><?php endforeach?><label class="small">Preserved notes</label><textarea class="form-control" rows="6" name="rows[<?=$n?>][notes]"><?=e($p['notes']??'')?></textarea><h3 class="h6 mt-2">Original uploaded row</h3><pre><?=e(json_encode($item['raw'],JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE))?></pre><h3 class="h6">Mapped data (JSON; edit any mapped numeric/date/value error)</h3><textarea class="form-control font-monospace" rows="12" name="rows[<?=$n?>][payload_json]"><?=e(json_encode($p,JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE))?></textarea></details></td></tr><?php endforeach?></tbody></table></div><label class="form-label">Type IMPORT after resolving all highlighted rows</label><input class="form-control mb-2" name="confirm" required><button class="btn btn-success">Validate Corrections &amp; Import</button></form><?php
+        }elseif($step==='summary'){$s=$_SESSION['import_summary']??[];?><h1>Detailed Import Summary</h1><dl class="row card card-body"><?php foreach(['total_rows'=>'Total Rows Found','imported'=>'Rows Imported','updated'=>'Rows Updated','skipped'=>'Rows Skipped','errors'=>'Rows With Errors','duplicate_seed_numbers'=>'Duplicate Seed Numbers','missing_required_fields'=>'Missing Required Fields','manual_review'=>'Manual Review']as$k=>$label):?><dt class="col-8"><?=e($label)?></dt><dd class="col-4"><?=e($s[$k]??0)?></dd><?php endforeach?></dl><?php }else{?><h1>Import Seeds</h1><form method="post" enctype="multipart/form-data" class="card card-body col-lg-7"><?=csrf_field()?><input type="hidden" name="step" value="upload"><p>Upload → preview/map → validate → resolve/review → confirm → summary. Known-layout compatibility is available; the actual starting XLSX still requires live verification; no starting XLSX is fabricated.</p><input class="form-control mb-3" type="file" name="seed_file" accept=".csv,.xlsx" required><button class="btn btn-success">Upload &amp; Preview</button></form><?php }});
 }
-
-function export_rows_csv(array $rows): void
+function export_rows_csv(array $rows,string $name='seed-library-export'): never {header('Content-Type: text/csv; charset=UTF-8');header('Content-Disposition: attachment; filename="'.$name.'.csv"');$o=fopen('php://output','wb');fputs($o,"\xEF\xBB\xBF");if($rows)fputcsv($o,array_keys($rows[0]));foreach($rows as$row)fputcsv($o,$row);fclose($o);exit;}
+function xlsx_column_name(int $i): string {$s='';while($i>0){$i--;$s=chr(65+$i%26).$s;$i=intdiv($i,26);}return$s;}
+function export_rows_xlsx(array $rows,string $name='seed-library-export'): never {if(!class_exists('ZipArchive'))throw new RuntimeException('XLSX export requires PHP ZipArchive.');$tmp=tempnam(sys_get_temp_dir(),'xlsx');$z=new ZipArchive();$z->open($tmp,ZipArchive::CREATE|ZipArchive::OVERWRITE);$headers=$rows?array_keys($rows[0]):['No data'];$sheet='<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>';$all=array_merge([$headers],array_map('array_values',$rows));foreach($all as$ri=>$row){$n=$ri+1;$sheet.="<row r=\"$n\">";foreach($row as$ci=>$v){$ref=xlsx_column_name($ci+1).$n;$sheet.='<c r="'.$ref.'" t="inlineStr"><is><t xml:space="preserve">'.htmlspecialchars((string)$v,ENT_QUOTES|ENT_XML1,'UTF-8').'</t></is></c>';}$sheet.='</row>';}$sheet.='</sheetData></worksheet>';$z->addFromString('[Content_Types].xml','<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/></Types>');$z->addFromString('_rels/.rels','<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>');$z->addFromString('xl/workbook.xml','<?xml version="1.0"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Seeds" sheetId="1" r:id="rId1"/></sheets></workbook>');$z->addFromString('xl/_rels/workbook.xml.rels','<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>');$z->addFromString('xl/worksheets/sheet1.xml',$sheet);$z->close();header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');header('Content-Disposition: attachment; filename="'.$name.'.xlsx"');readfile($tmp);unlink($tmp);exit;}
+function export_seed_rows(array $filters=[]): array {$filters['page']=1;$rows=seed_query($filters);return array_map(function($r){unset($r['id'],$r['category_id'],$r['plant_family_id'],$r['status_id']);return$r;},$rows);}
+function companion_report_rows(string $plant=""): array
 {
-    header('Content-Type: text/csv'); header('Content-Disposition: attachment; filename="seed-library-export.csv"');
-    $out=fopen('php://output','w'); if ($rows) fputcsv($out, array_keys($rows[0])); foreach($rows as $row) fputcsv($out,$row); fclose($out); exit;
+    $raw=db()->query('SELECT cr.relationship_type, cr.notes, source.id source_id, source.seed_number source_number, source.name source_name, target.id target_id, target.seed_number target_number, target.name target_name FROM companion_relationships cr JOIN seeds source ON source.id=cr.seed_id JOIN seeds target ON target.id=cr.companion_seed_id ORDER BY cr.id')->fetchAll();
+    $rules=function_exists('companion_relationship_direction_rules')?companion_relationship_direction_rules():['Good Companion'=>'symmetric','Avoid'=>'symmetric','Neutral'=>'symmetric'];$merged=[];
+    foreach($raw as$row){$symmetric=($rules[$row['relationship_type']]??'directional')==='symmetric';$left=(int)$row['source_id'];$right=(int)$row['target_id'];if($symmetric&&$left>$right){foreach([['source_id','target_id'],['source_number','target_number'],['source_name','target_name']]as[$a,$b])[$row[$a],$row[$b]]=[$row[$b],$row[$a]];$left=(int)$row['source_id'];$right=(int)$row['target_id'];}$key=$row['relationship_type'].'|'.$left.'|'.$right;if(!isset($merged[$key]))$merged[$key]=['Plant'=>$row['source_name'].' #'.$row['source_number'],'Relationship'=>$row['relationship_type'],'Companion'=>$row['target_name'].' #'.$row['target_number'],'Direction'=>$symmetric?'Mutual':$row['source_name'].' #'.$row['source_number'].' → '.$row['target_name'].' #'.$row['target_number'],'_notes'=>[]];$note=trim((string)$row['notes']);if($note!=='')$merged[$key]['_notes'][$note]=true;}
+    foreach($merged as&$row){$row['Notes']=implode('; ',array_keys($row['_notes']));unset($row['_notes']);}unset($row);$rows=array_values($merged);if(trim($plant)!==''){$needle=mb_strtolower(trim($plant));$rows=array_values(array_filter($rows,fn($r)=>str_contains(mb_strtolower($r['Plant'].' '.$r['Companion']),$needle)));}return$rows;
 }
-
-function xlsx_column_name(int $index): string
+function rows_for_export(string $report,array $filters=[]): array {return match($report){'companions'=>companion_report_rows((string)($filters['plant']??'')),'containers'=>export_seed_rows(['container_friendly'=>1]),'medicinal'=>export_seed_rows(['medicinal'=>1]),'pollinators'=>export_seed_rows(['pollinator_friendly'=>1]),'perennials'=>array_values(array_filter(export_seed_rows(),fn($r)=>in_array($r['perennial_status']??null,['Perennial','Biennial'],true))),'calendar'=>export_seed_rows(isset($filters['month'])?['plantable_month'=>$filters['month'],'sort'=>'planting_start_month']:['sort'=>'planting_start_month']),'bank'=>db()->query("SELECT s.seed_number AS `Seed Number`, s.name AS `Seed Name`, COALESCE(c.name,'') AS Category, CONCAT_WS(' · ',NULLIF(l.storage_box,''),NULLIF(l.container,''),NULLIF(l.envelope,''),NULLIF(l.row_label,''),NULLIF(l.slot,'')) AS `Seed Location` FROM seeds s LEFT JOIN categories c ON c.id=s.category_id LEFT JOIN seed_locations l ON l.seed_id=s.id ORDER BY s.seed_number")->fetchAll(),default=>export_seed_rows($report==='filtered'?$filters:[])};}
+function export_page(): void {$report=(string)($_GET['report']??'all');$format=(string)($_GET['format']??'csv');if(isset($_GET['download'])){$rows=rows_for_export($report,$_GET);$name=$report==='filtered'?'seed-library-filtered':'seed-library-all';$format==='xlsx'?export_rows_xlsx($rows,$name):export_rows_csv($rows,$name);}render('Export Seeds',function(){?><h1>Export Seeds</h1><div class="card card-body col-lg-6"><h2 class="h5">All Seeds</h2><p>Download the complete inventory. For Filtered Results, apply filters on Inventory and use its authoritative CSV/XLSX buttons.</p><a class="btn btn-outline-success mb-2" href="<?=e(url('export?download=1&report=all&format=csv'))?>">All Seeds CSV</a><a class="btn btn-outline-success" href="<?=e(url('export?download=1&report=all&format=xlsx'))?>">All Seeds XLSX</a></div><?php });}
+function readable_seed_report_rows(string $report,array $filters=[]): array
 {
-    $name = '';
-    while ($index > 0) { $index--; $name = chr(65 + ($index % 26)) . $name; $index = intdiv($index, 26); }
-    return $name;
+    $seedFilters=$report==='library'?$filters:match($report){'containers'=>['container_friendly'=>1],'medicinal'=>['medicinal'=>1],'pollinators'=>['pollinator_friendly'=>1],'calendar'=>isset($filters['month'])?['plantable_month'=>$filters['month'],'sort'=>'planting_start_month']:['sort'=>'planting_start_month'],default=>[]};$rows=seed_query($seedFilters);if($report==='perennials')$rows=array_values(array_filter($rows,fn($r)=>in_array($r['perennial_status']??null,['Perennial','Biennial'],true)));
+    return array_map(function($r)use($report){$base=['Seed Number'=>$r['seed_number'],'Seed Name'=>$r['name'],'Variety'=>$r['variety']??'','Category'=>$r['category_name']??''];return match($report){'calendar'=>$base+['Method'=>$r['planting_method']??'','Start'=>date_label($r['planting_start_month'],$r['planting_start_day']),'Last'=>date_label($r['planting_end_month'],$r['planting_end_day']),'Days to Maturity'=>$r['days_to_maturity']??'','Notes'=>$r['notes']??''],'containers'=>$base+['Minimum Container'=>$r['minimum_container_size']??'','Sun'=>$r['sun_requirements']??'','Spacing'=>$r['spacing']??''],'medicinal'=>$base+['Lifecycle'=>$r['perennial_status']??'','Source'=>$r['seed_source']??'','Notes'=>$r['notes']??''],'pollinators'=>$base+['Lifecycle'=>$r['perennial_status']??'','Planting Window'=>date_label($r['planting_start_month'],$r['planting_start_day']).' – '.date_label($r['planting_end_month'],$r['planting_end_day'])],'perennials'=>$base+['Lifecycle'=>$r['perennial_status']??'','Planting Method'=>$r['planting_method']??'','Sun'=>$r['sun_requirements']??''],default=>$base+['Plant Type'=>$r['plant_type']??'','Method'=>$r['planting_method']??'','Planting Window'=>date_label($r['planting_start_month'],$r['planting_start_day']).' – '.date_label($r['planting_end_month'],$r['planting_end_day']),'Status'=>$r['status_name']??'','Location'=>implode(' · ',array_filter([$r['storage_box']??null,$r['container']??null,$r['envelope']??null,$r['row_label']??null,$r['slot']??null]))]};},$rows);
 }
-
-function export_rows_xlsx(array $rows): void
-{
-    if (!class_exists('ZipArchive')) { throw new RuntimeException('XLSX export requires PHP ZipArchive.'); }
-    header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'); header('Content-Disposition: attachment; filename="seed-library-export.xlsx"');
-    $tmp=tempnam(sys_get_temp_dir(),'xlsx'); $zip=new ZipArchive(); $zip->open($tmp, ZipArchive::CREATE);
-    $headers=$rows ? array_keys($rows[0]) : ['No data']; $sheet='<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>';
-    $all=array_merge([$headers], array_map('array_values',$rows)); $r=1; foreach($all as $row){$sheet.='<row r="'.$r.'">'; $c=1; foreach($row as $v){$sheet.='<c r="'.xlsx_column_name($c).$r.'" t="inlineStr"><is><t>'.htmlspecialchars((string)$v, ENT_QUOTES | ENT_XML1, 'UTF-8').'</t></is></c>'; $c++;} $sheet.='</row>'; $r++;} $sheet.='</sheetData></worksheet>';
-    $zip->addFromString('[Content_Types].xml','<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/></Types>');
-    $zip->addFromString('_rels/.rels','<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>');
-    $zip->addFromString('xl/workbook.xml','<?xml version="1.0"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Seeds" sheetId="1" r:id="rId1"/></sheets></workbook>');
-    $zip->addFromString('xl/_rels/workbook.xml.rels','<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>');
-    $zip->addFromString('xl/worksheets/sheet1.xml',$sheet); $zip->close(); readfile($tmp); unlink($tmp); exit;
-}
-
-function export_page(): void
-{
-    if (isset($_GET['download'])) { $rows = rows_for_export($_GET['report'] ?? 'all'); ($_GET['format'] ?? 'csv') === 'xlsx' ? export_rows_xlsx($rows) : export_rows_csv($rows); }
-    render('Export Seeds', function () { $reports=['all'=>'All Seeds','filtered'=>'Filtered Results','calendar'=>'Planting Calendar','companions'=>'Companion Guide','containers'=>'Container-Friendly Plants','medicinal'=>'Medicinal Plants','pollinators'=>'Pollinator Plants','perennials'=>'Perennials','bank'=>'Seed Bank Inventory']; ?>
-    <h1>Export Seeds</h1><form class="card card-body col-lg-6"><input type="hidden" name="download" value="1"><label class="form-label">Export</label><select class="form-select mb-3" name="report"><?php foreach($reports as $k=>$v): ?><option value="<?= e($k) ?>"><?= e($v) ?></option><?php endforeach; ?></select><label class="form-label">Format</label><select class="form-select mb-3" name="format"><option value="csv">CSV</option><option value="xlsx">XLSX</option></select><button class="btn btn-success">Download</button></form><?php });
-}
-
-function rows_for_export(string $report): array
-{
-    return match($report) {
-        'companions' => db()->query('SELECT s.name AS seed, cr.relationship_type, cs.name AS companion, cr.notes FROM companion_relationships cr JOIN seeds s ON s.id=cr.seed_id JOIN seeds cs ON cs.id=cr.companion_seed_id ORDER BY s.name')->fetchAll(),
-        'containers' => seed_query(['container_friendly'=>1]), 'medicinal' => seed_query(['medicinal'=>1]), 'pollinators' => seed_query(['pollinator_friendly'=>1]), 'perennials' => seed_query(['perennial'=>1]),
-        'calendar' => seed_query(['sort'=>'planting_start_month']), 'bank' => seed_query(['sort'=>'storage_box']), default => seed_query($_GET),
-    };
-}
-
-function print_page(): void
-{
-    $report = $_GET['report'] ?? 'inventory'; $rows = rows_for_export($report === 'inventory' ? 'filtered' : $report);
-    render('Print Reports', function () use ($report,$rows) { $reports=['inventory'=>'Inventory','calendar'=>'Planting Calendar','companions'=>'Companion Guide','containers'=>'Container-Friendly','medicinal'=>'Medicinal','pollinators'=>'Pollinators','perennials'=>'Perennials','bank'=>'Seed Bank']; ?><div class="no-print mb-3"><h1>Print Reports</h1><form class="row g-2 align-items-end mb-3"><div class="col-md-4"><label class="form-label">Report</label><select class="form-select" name="report"><?php foreach($reports as $key=>$label): ?><option value="<?= e($key) ?>" <?= $report===$key?'selected':'' ?>><?= e($label) ?></option><?php endforeach; ?></select></div><div class="col-md-4"><button class="btn btn-outline-success">Load Report</button> <button type="button" class="btn btn-success" onclick="window.print()">Print</button></div></form></div><div class="card"><div class="card-body"><h2><?= e($reports[$report] ?? ucwords(str_replace('_',' ',$report))) ?></h2><div class="table-responsive"><table class="table table-sm"><thead><tr><?php foreach(array_keys($rows[0] ?? ['message'=>'No data']) as $h): ?><th><?= e($h) ?></th><?php endforeach; ?></tr></thead><tbody><?php foreach($rows as $r): ?><tr><?php foreach($r as $v): ?><td><?= e($v) ?></td><?php endforeach; ?></tr><?php endforeach; ?></tbody></table></div></div></div><?php }, ['print'=>true]);
-}
+function print_report_rows(string $report,array $filters): array {return match($report){'companions'=>companion_report_rows((string)($filters['plant']??'')),'bank'=>rows_for_export('bank',$filters),'inventory'=>readable_seed_report_rows('library',$filters),default=>readable_seed_report_rows($report,$filters)};}
+function print_page(): void {$report=(string)($_GET['report']??'library');$map=['library'=>'Full Seed Library','inventory'=>'Filtered Seed Inventory','calendar'=>'Planting Calendar by Month','companions'=>'Companion Planting Guide by Plant','containers'=>'Container-Friendly Seeds','medicinal'=>'Medicinal Plants','pollinators'=>'Pollinator Garden Seeds','perennials'=>'Perennials / Biennials','bank'=>'Seed Bank Inventory'];if(!isset($map[$report]))$report='library';$rows=print_report_rows($report,$_GET);render($map[$report],function()use($report,$map,$rows){?><div class="no-print mb-3"><h1>Print Reports</h1><form class="row g-2"><div class="col-md-5"><select class="form-select" name="report"><?php foreach($map as$k=>$v):?><option value="<?=e($k)?>" <?=$k===$report?'selected':''?>><?=e($v)?></option><?php endforeach?></select></div><?php if($report==='companions'):?><div class="col-md-3"><label class="form-label">Plant name or Seed Number</label><input class="form-control" name="plant" value="<?=e($_GET['plant']??'')?>"></div><?php endif?><?php if($report==='calendar'):?><div class="col-md-3"><select class="form-select" name="month"><?php for($m=1;$m<=12;$m++):?><option value="<?=$m?>" <?=($_GET['month']??date('n'))==$m?'selected':''?>><?=e(month_name($m))?></option><?php endfor?></select></div><?php endif?><div class="col"><button class="btn btn-outline-success">Load</button> <button type="button" class="btn btn-success" onclick="window.print()">Print / Save PDF</button></div></form></div><header class="print-report-header"><h1><?=e($map[$report])?></h1><p>Generated <?=e(date('F j, Y'))?> · <?=count($rows)?> records</p></header><table class="table table-sm print-table"><thead><tr><?php foreach(array_keys($rows[0]??['Message'=>'No matching records'])as$h):?><th><?=e(ucwords(str_replace('_',' ',$h)))?></th><?php endforeach?></tr></thead><tbody><?php foreach($rows as$r):?><tr><?php foreach($r as$v):?><td><?=e($v)?></td><?php endforeach?></tr><?php endforeach?></tbody></table><?php },['print'=>true]);}
