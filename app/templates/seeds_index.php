@@ -16,19 +16,188 @@ $showingEnd=$result['total']===0?0:min($result['total'],$showingStart+count($see
 ?>
 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3"><div><h1 class="mb-0">Seed Inventory</h1><p class="text-muted mb-0">Showing <?=e($showingStart)?>–<?=e($showingEnd)?> of <?=e($result['total'])?> seeds · Page <?=e($result['page'])?> of <?=e($result['pages'])?></p></div><div class="d-flex flex-wrap gap-2"><a class="btn btn-success" href="<?=e(url('seeds/create'))?>">Add New Seed</a><?php if(!$filterErrors):?><a class="btn btn-outline-success" href="<?=e($exportUrl)?>">Filtered CSV</a><a class="btn btn-outline-success" href="<?=e($exportXlsxUrl)?>">Filtered XLSX</a><a class="btn btn-outline-secondary" href="<?=e(url('print?'.http_build_query(array_merge($active,['report'=>'inventory']))))?>">Print</a><?php endif?></div></div>
 <?php if($filterErrors):?><div class="alert alert-danger" role="alert"><strong>Correct the planting date filters:</strong><ul class="mb-0"><?php foreach($filterErrors as $error):?><li><?=e($error)?></li><?php endforeach?></ul></div><?php endif?>
-<div class="accordion mb-3" id="filters"><div class="accordion-item"><h2 class="accordion-header"><button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#filterBody">Search & Filters</button></h2><div id="filterBody" class="accordion-collapse collapse show"><div class="accordion-body"><form class="row g-2" method="get">
-<div class="col-12 col-lg-6"><label class="form-label">Global Search</label><input class="form-control" name="search" value="<?=e($filters['search']??'')?>" placeholder="Number, seed, variety, category, family, type, companion, use, or notes"></div>
-<?php foreach(['category_id'=>['Category',$ref['categories']],'plant_family_id'=>['Plant Family',$ref['families']],'status_id'=>['Status',$ref['statuses']]] as $key=>[$label,$rows]): ?><div class="col-6 col-lg-2"><label class="form-label"><?=e($label)?></label><select class="form-select" name="<?=e($key)?>"><option value="">All</option><?php foreach($rows as $r):?><option value="<?=e($r['id'])?>" <?=($filters[$key]??'')==(string)$r['id']?'selected':''?>><?=e($r['name'])?></option><?php endforeach?></select></div><?php endforeach?>
-<div class="col-6 col-lg-2"><label class="form-label">Plantable Month</label><select class="form-select" name="plantable_month"><option value="">All</option><?php for($m=1;$m<=12;$m++):?><option value="<?=$m?>" <?=($filters['plantable_month']??'')==(string)$m?'selected':''?>><?=e(month_name($m))?></option><?php endfor?></select></div>
-<?php foreach(['plant_type'=>'Plant Type','seed_source'=>'Seed Source / Brand','packet_year'=>'Packet Year','storage_box'=>'Seed Location','companion'=>'Compatible Companion'] as $key=>$label):?><div class="col-6 col-lg-2"><label class="form-label"><?=e($label)?></label><input class="form-control" name="<?=e($key)?>" value="<?=e($filters[$key]??'')?>"></div><?php endforeach?>
-<div class="col-6 col-lg-2"><label class="form-label">Planting Method</label><select class="form-select" name="planting_method"><option value="">All</option><?php foreach(['Direct Sow','Start Indoors','Transplant','Direct Sow or Transplant'] as $method):?><option value="<?=e($method)?>" <?=($filters['planting_method']??'')===$method?'selected':''?>><?=e($method)?></option><?php endforeach?></select></div>
-<div class="col-12 col-lg-4"><label class="form-label">Uses (match all selected)</label><select class="form-select" name="uses[]" multiple size="3"><?php foreach($ref['uses'] as $use):?><option value="<?=e($use['id'])?>" <?=in_array((string)$use['id'],array_map('strval',(array)($filters['uses']??[])),true)?'selected':''?>><?=e($use['name'])?></option><?php endforeach?></select></div>
-<?php foreach(['planting_start'=>'Start Planting Date','planting_end'=>'Last Planting Date'] as $key=>$label):?><div class="col-12 col-lg-4"><label class="form-label"><?=e($label)?> range (MM-DD)</label><div class="input-group"><input class="form-control" name="<?=$key?>_from" placeholder="From MM-DD" pattern="\d{2}-\d{2}" value="<?=e($filters[$key.'_from']??'')?>"><input class="form-control" name="<?=$key?>_to" placeholder="To MM-DD" pattern="\d{2}-\d{2}" value="<?=e($filters[$key.'_to']??'')?>"></div></div><?php endforeach?>
-<?php foreach(array_merge($flags,['indoor_start'=>'Indoor Start','direct_sow'=>'Direct Sow','transplant'=>'Transplant']) as $key=>$label):?><div class="col-6 col-lg-2"><label class="form-label"><?=e($label)?></label><select class="form-select" name="<?=e($key)?>"><option value="">Either</option><option value="1" <?=($filters[$key]??'')==='1'?'selected':''?>>Yes</option><option value="0" <?=($filters[$key]??'')==='0'?'selected':''?>>No</option></select></div><?php endforeach?>
-<div class="col-6 col-lg-2"><label class="form-label">Sort</label><select class="form-select" name="sort"><?php foreach(['seed_number'=>'Seed #','name'=>'Name','variety'=>'Variety','category_name'=>'Category','family_name'=>'Family','plant_type'=>'Plant Type','planting_method'=>'Method','germination'=>'Germination','maturity'=>'Harvest/Maturity','seed_source'=>'Seed Source/Brand','planting_start'=>'Start Date','planting_end'=>'Last Date','packet_year'=>'Packet Year','storage_box'=>'Location','status_name'=>'Status'] as $key=>$label):?><option value="<?=e($key)?>" <?=($filters['sort']??$defaultSort)===$key?'selected':''?>><?=e($label)?></option><?php endforeach?></select></div>
-<div class="col-6 col-lg-2"><label class="form-label">Direction</label><select class="form-select" name="direction"><option value="ASC" <?=strtoupper($filters['direction']??'ASC')==='ASC'?'selected':''?>>Ascending</option><option value="DESC" <?=strtoupper($filters['direction']??'ASC')==='DESC'?'selected':''?>>Descending</option></select></div>
-<div class="col-6 col-lg-2"><label class="form-label">Rows Per Page</label><select class="form-select" name="per_page"><?php foreach(inventory_page_sizes() as $n):?><option value="<?=$n?>" <?=($result['per_page']===$n)?'selected':''?>><?=$n?></option><?php endforeach?></select></div><div class="col-12 d-flex gap-2 align-items-end"><button class="btn btn-success">Apply</button><a class="btn btn-outline-secondary" href="<?=e(url('seeds'))?>">Clear All / Reset</a></div>
-</form></div></div></div></div>
+<div class="card mb-3">
+  <div class="card-body">
+    <form method="get" action="<?=e(url('seeds'))?>">
+      <div class="mb-3">
+        <label class="form-label fw-bold" for="inventory-search">Quick Search</label>
+        <div class="input-group">
+          <input
+            id="inventory-search"
+            class="form-control"
+            name="search"
+            value="<?=e($filters['search']??'')?>"
+            placeholder="Search seed number, name, or variety"
+          >
+          <button class="btn btn-success" type="submit">Search</button>
+          <?php if(($filters['search']??'')!==''):?>
+            <a class="btn btn-outline-secondary" href="<?=e(url('seeds'))?>">Clear</a>
+          <?php endif?>
+        </div>
+        <?php if(($filters['search']??'')!==''):?>
+          <div class="small text-muted mt-2">
+            Search results for <strong>“<?=e($filters['search'])?>”</strong> · <?=e($result['total'])?> seed<?=((int)$result['total']===1?'':'s')?>
+          </div>
+        <?php endif?>
+      </div>
+
+      <div class="row g-2 align-items-end">
+        <?php foreach([
+          'category_id'=>['Category',$ref['categories']],
+          'status_id'=>['Status',$ref['statuses']]
+        ] as $key=>[$label,$rows]): ?>
+          <div class="col-6 col-lg-3">
+            <label class="form-label"><?=e($label)?></label>
+            <select class="form-select" name="<?=e($key)?>">
+              <option value="">All</option>
+              <?php foreach($rows as $r):?>
+                <option value="<?=e($r['id'])?>" <?=($filters[$key]??'')==(string)$r['id']?'selected':''?>><?=e($r['name'])?></option>
+              <?php endforeach?>
+            </select>
+          </div>
+        <?php endforeach?>
+
+        <div class="col-6 col-lg-3">
+          <label class="form-label">Plantable Month</label>
+          <select class="form-select" name="plantable_month">
+            <option value="">All</option>
+            <?php for($m=1;$m<=12;$m++):?>
+              <option value="<?=$m?>" <?=($filters['plantable_month']??'')==(string)$m?'selected':''?>><?=e(month_name($m))?></option>
+            <?php endfor?>
+          </select>
+        </div>
+
+        <div class="col-6 col-lg-3">
+          <label class="form-label">Planting Method</label>
+          <select class="form-select" name="planting_method">
+            <option value="">All</option>
+            <?php foreach(['Direct Sow','Start Indoors','Transplant','Direct Sow or Transplant'] as $method):?>
+              <option value="<?=e($method)?>" <?=($filters['planting_method']??'')===$method?'selected':''?>><?=e($method)?></option>
+            <?php endforeach?>
+          </select>
+        </div>
+
+        <div class="col-12 d-flex flex-wrap gap-2 mt-3">
+          <button class="btn btn-success" type="submit">Apply Filters</button>
+          <a class="btn btn-outline-secondary" href="<?=e(url('seeds'))?>">Clear All</a>
+        </div>
+      </div>
+
+      <details class="mt-3" <?=count($active)>5?'open':''?>>
+        <summary class="fw-semibold text-success">More Filters</summary>
+
+        <div class="row g-2 mt-1">
+          <div class="col-6 col-lg-3">
+            <label class="form-label">Plant Family</label>
+            <select class="form-select" name="plant_family_id">
+              <option value="">All</option>
+              <?php foreach($ref['families'] as $r):?>
+                <option value="<?=e($r['id'])?>" <?=($filters['plant_family_id']??'')==(string)$r['id']?'selected':''?>><?=e($r['name'])?></option>
+              <?php endforeach?>
+            </select>
+          </div>
+
+          <?php foreach([
+            'plant_type'=>'Plant Type',
+            'seed_source'=>'Seed Source / Brand',
+            'packet_year'=>'Packet Year',
+            'storage_box'=>'Seed Location',
+            'companion'=>'Compatible Companion'
+          ] as $key=>$label):?>
+            <div class="col-6 col-lg-3">
+              <label class="form-label"><?=e($label)?></label>
+              <input class="form-control" name="<?=e($key)?>" value="<?=e($filters[$key]??'')?>">
+            </div>
+          <?php endforeach?>
+
+          <div class="col-12 col-lg-4">
+            <label class="form-label">Uses</label>
+            <select class="form-select" name="uses[]" multiple size="3">
+              <?php foreach($ref['uses'] as $use):?>
+                <option value="<?=e($use['id'])?>" <?=in_array((string)$use['id'],array_map('strval',(array)($filters['uses']??[])),true)?'selected':''?>><?=e($use['name'])?></option>
+              <?php endforeach?>
+            </select>
+          </div>
+
+          <?php foreach([
+            'planting_start'=>'Start Planting Date',
+            'planting_end'=>'Last Planting Date'
+          ] as $key=>$label):?>
+            <div class="col-12 col-lg-4">
+              <label class="form-label"><?=e($label)?> range (MM-DD)</label>
+              <div class="input-group">
+                <input class="form-control" name="<?=$key?>_from" placeholder="From MM-DD" pattern="\d{2}-\d{2}" value="<?=e($filters[$key.'_from']??'')?>">
+                <input class="form-control" name="<?=$key?>_to" placeholder="To MM-DD" pattern="\d{2}-\d{2}" value="<?=e($filters[$key.'_to']??'')?>">
+              </div>
+            </div>
+          <?php endforeach?>
+
+          <?php foreach(array_merge($flags,[
+            'indoor_start'=>'Indoor Start',
+            'direct_sow'=>'Direct Sow',
+            'transplant'=>'Transplant'
+          ]) as $key=>$label):?>
+            <div class="col-6 col-lg-2">
+              <label class="form-label"><?=e($label)?></label>
+              <select class="form-select" name="<?=e($key)?>">
+                <option value="">Either</option>
+                <option value="1" <?=($filters[$key]??'')==='1'?'selected':''?>>Yes</option>
+                <option value="0" <?=($filters[$key]??'')==='0'?'selected':''?>>No</option>
+              </select>
+            </div>
+          <?php endforeach?>
+
+          <div class="col-6 col-lg-2">
+            <label class="form-label">Sort</label>
+            <select class="form-select" name="sort">
+              <?php foreach([
+                'seed_number'=>'Seed #',
+                'name'=>'Name',
+                'variety'=>'Variety',
+                'category_name'=>'Category',
+                'family_name'=>'Family',
+                'plant_type'=>'Plant Type',
+                'planting_method'=>'Method',
+                'germination'=>'Germination',
+                'maturity'=>'Harvest/Maturity',
+                'seed_source'=>'Seed Source/Brand',
+                'planting_start'=>'Start Date',
+                'planting_end'=>'Last Date',
+                'packet_year'=>'Packet Year',
+                'storage_box'=>'Location',
+                'status_name'=>'Status'
+              ] as $key=>$label):?>
+                <option value="<?=e($key)?>" <?=($filters['sort']??$defaultSort)===$key?'selected':''?>><?=e($label)?></option>
+              <?php endforeach?>
+            </select>
+          </div>
+
+          <div class="col-6 col-lg-2">
+            <label class="form-label">Direction</label>
+            <select class="form-select" name="direction">
+              <option value="ASC" <?=strtoupper($filters['direction']??'ASC')==='ASC'?'selected':''?>>Ascending</option>
+              <option value="DESC" <?=strtoupper($filters['direction']??'ASC')==='DESC'?'selected':''?>>Descending</option>
+            </select>
+          </div>
+
+          <div class="col-6 col-lg-2">
+            <label class="form-label">Rows Per Page</label>
+            <select class="form-select" name="per_page">
+              <?php foreach(inventory_page_sizes() as $n):?>
+                <option value="<?=$n?>" <?=($result['per_page']===$n)?'selected':''?>><?=$n?></option>
+              <?php endforeach?>
+            </select>
+          </div>
+
+          <div class="col-12 d-flex flex-wrap gap-2 mt-3">
+            <button class="btn btn-success" type="submit">Apply All Filters</button>
+            <a class="btn btn-outline-secondary" href="<?=e(url('seeds'))?>">Clear All</a>
+          </div>
+        </div>
+      </details>
+    </form>
+  </div>
+</div>
 <div class="card desktop-table"><div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead><tr><?php foreach(['seed_number'=>'Seed #','name'=>'Seed / Variety','category_name'=>'Category / Family','plant_type'=>'Type / Method','planting_start'=>'Planting','storage_box'=>'Location','status_name'=>'Status'] as $key=>$label):?><th><a href="<?=e($sortUrl($key))?>"><?=e($label)?></a></th><?php endforeach?><th>Growing Details & Flags</th><th>Actions</th></tr></thead><tbody>
 <?php foreach($seeds as $s): $activeFlags=array_values(array_filter($flags,fn($label,$key)=>!empty($s[$key]),ARRAY_FILTER_USE_BOTH));?><tr><td class="fw-bold"><?=e($s['seed_number'])?></td><td><a href="<?=e(url('seeds/'.$s['id']))?>"><?=e($s['name'])?></a><div class="small text-muted"><?=e($s['variety']?:'No variety')?></div></td><td><?=e($s['category_name']?:'—')?><div class="small text-muted"><?=e($s['family_name']?:'—')?></div></td><td><?=e($s['plant_type']?:'—')?><div class="small text-muted"><?=e($s['planting_method']?:'—')?></div></td><td><strong><?=e($window($s))?></strong><?php if(display_plantable_months()):?><div class="small" title="<?=e($months($s['plantable_months']))?>"><?=e($months($s['plantable_months']))?></div><?php endif?></td><td><?=e($location($s)?:'—')?></td><td><?=e($s['status_name']?:'—')?></td><td class="small"><div><strong>Germination:</strong> <?=e($germination($s))?> · <strong>Maturity:</strong> <?=e($maturity($s))?></div><div><strong>Sun:</strong> <?=e($s['sun_requirements']?:'Not recorded')?> · <strong>Spacing:</strong> <?=e($s['spacing']?:'Not recorded')?></div><div><strong>Life cycle:</strong> <?=e($s['perennial_status']?:'Not recorded')?> · <strong>Source:</strong> <?=e($s['seed_source']?:'Not recorded')?></div><div class="text-muted"><?=e(implode(' · ',$activeFlags)?:'No key flags')?></div></td><td><div class="d-flex flex-wrap gap-1"><a class="btn btn-sm btn-outline-secondary" href="<?=e(url('seeds/'.$s['id']))?>">View</a><a class="btn btn-sm btn-outline-success" href="<?=e(url('seeds/'.$s['id'].'/edit'))?>">Edit</a><form method="post" action="<?=e(url('seeds/'.$s['id'].'/duplicate'))?>"><?=csrf_field()?><button class="btn btn-sm btn-outline-secondary">Duplicate</button></form><form method="post" action="<?=e(url('seeds/'.$s['id'].'/delete'))?>" data-confirm="Delete this seed?"><?=csrf_field()?><button class="btn btn-sm btn-outline-danger">Delete</button></form></div></td></tr><?php endforeach?></tbody></table></div></div>
 <div class="mobile-card"><?php foreach($seeds as $s):?><article class="card mb-3"><div class="card-body"><div class="d-flex justify-content-between"><h2 class="h5"><a href="<?=e(url('seeds/'.$s['id']))?>"><?=e($s['name'])?></a></h2><strong>#<?=e($s['seed_number'])?></strong></div><p><?=e($s['variety']?:'No variety')?> · <?=e($s['category_name']?:'Uncategorized')?> · <?=e($s['family_name']?:'No family')?></p><dl class="row small"><dt class="col-5">Type / Method</dt><dd class="col-7"><?=e($s['plant_type']?:'—')?> / <?=e($s['planting_method']?:'—')?></dd><dt class="col-5">Planting Window</dt><dd class="col-7"><?=e($window($s))?></dd><?php if(display_plantable_months()):?><dt class="col-5">Plantable Months</dt><dd class="col-7"><?=e($months($s['plantable_months']))?></dd><?php endif?><dt class="col-5">Germination</dt><dd class="col-7"><?=e($germination($s))?></dd><dt class="col-5">Harvest/Maturity</dt><dd class="col-7"><?=e($maturity($s))?></dd><dt class="col-5">Sun / Spacing</dt><dd class="col-7"><?=e($s['sun_requirements']?:'Not recorded')?> / <?=e($s['spacing']?:'Not recorded')?></dd><dt class="col-5">Life cycle</dt><dd class="col-7"><?=e($s['perennial_status']?:'Not recorded')?></dd><dt class="col-5">Seed Source/Brand</dt><dd class="col-7"><?=e($s['seed_source']?:'Not recorded')?></dd><dt class="col-5">Important Flags</dt><dd class="col-7"><?php $mobileFlags=array_values(array_filter($flags,fn($label,$key)=>!empty($s[$key]),ARRAY_FILTER_USE_BOTH)); ?><?=e(implode(' · ',$mobileFlags)?:'None recorded')?></dd><dt class="col-5">Location / Status</dt><dd class="col-7"><?=e($location($s)?:'—')?> / <?=e($s['status_name']?:'—')?></dd></dl><div class="d-grid gap-2"><a class="btn btn-outline-secondary" href="<?=e(url('seeds/'.$s['id']))?>">View</a><a class="btn btn-outline-success" href="<?=e(url('seeds/'.$s['id'].'/edit'))?>">Edit</a><form method="post" action="<?=e(url('seeds/'.$s['id'].'/duplicate'))?>"><?=csrf_field()?><button class="btn btn-outline-secondary w-100">Duplicate</button></form><form method="post" action="<?=e(url('seeds/'.$s['id'].'/delete'))?>" data-confirm="Delete this seed?"><?=csrf_field()?><button class="btn btn-outline-danger w-100">Delete</button></form></div></div></article><?php endforeach?></div>
