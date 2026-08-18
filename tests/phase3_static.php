@@ -2,6 +2,7 @@
 declare(strict_types=1);
 $root=dirname(__DIR__);
 $index=file_get_contents($root.'/public/index.php');
+$calendar=file_get_contents($root.'/app/calendar.php');
 $form=file_get_contents($root.'/app/templates/seed_form.php');
 $js=file_get_contents($root.'/public/assets/app.js');
 $seeds=file_get_contents($root.'/app/seeds.php');
@@ -13,8 +14,8 @@ $databaseReadme=file_get_contents($root.'/database/README.md');
 $checks=[
  'calendar has all twelve months and complete columns'=>str_contains($index,'for($m=1;$m<=12;$m++)')&&str_contains($index,'Days to Harvest/Maturity')&&str_contains($index,'View Seed'),
  'calendar uses cross-year/explicit-month query'=>str_contains($index,"seed_query(['plantable_month'=>\$month")&&str_contains(file_get_contents($root.'/app/bootstrap.php'),'FIND_IN_SET'),
- 'method calendar groups use dedicated ranges with cross-year helper and general fallback'=>str_contains($index,"'direct_sow'=>['direct_sow'")&&str_contains($index,"'start_indoors'=>['indoor'")&&str_contains($index,"'transplant'=>['transplant'")&&str_contains($index,'calendar_month_in_range')&&str_contains($index,'calendar_general_month_matches')&&str_contains($index,"seed_query(['sort'=>'planting_start_month'])"),
- 'calendar grouping is centralized and documented'=>str_contains($index,'function calendar_group_rules')&&str_contains($index,'Phase 3 inferred groups are centralized here'),
+ 'method calendar groups use dedicated ranges with cross-year helper and general fallback'=>str_contains($calendar,"'direct_sow'=>['direct_sow'")&&str_contains($calendar,"'start_indoors'=>['indoor'")&&str_contains($calendar,"'transplant'=>['transplant'")&&str_contains($calendar,'calendar_month_in_range')&&str_contains($calendar,'calendar_general_month_matches')&&str_contains($index,"seed_query(['sort'=>'planting_start_month'])"),
+ 'calendar grouping is centralized and documented'=>str_contains($calendar,'function calendar_group_rules')&&str_contains($calendar,'Phase 3 inferred groups are centralized here'),
  'sparse companion indexes advance beyond the greatest used key'=>str_contains($form,'max(array_map(\'intval\',$companionIndexes))+1')&&!str_contains($form,'data-next-index="<?=count($companions)?>"'),
  'unlimited dynamic companions'=>!str_contains($form,'for($i=0;$i<6')&&str_contains($form,'companion-template')&&str_contains($js,'rows.dataset.nextIndex'),
  'companion validation remains structured'=>str_contains($seeds,'has_duplicate_companion_pairs')&&str_contains($seeds,"'Pollinator Support'")&&str_contains($seeds,'own companion'),

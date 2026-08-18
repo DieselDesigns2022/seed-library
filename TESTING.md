@@ -633,6 +633,23 @@ Now test filters from **Seed Inventory**:
 
 The calendar is year-independent. It uses stored month/day windows and displays dates without a year.
 
+### Phase 6 Visual Calendar live verification — pending
+
+These authenticated browser/mobile checks remain **pending until live tested and recorded**:
+
+- [ ] Confirm `/calendar` opens in Visual Calendar by default and switching to Table View and back preserves applicable Month and Group filters.
+- [ ] Confirm All Months shows the full year, and a specific month keeps the full-year timeline visible while limiting results to seeds plantable/actionable in that month.
+- [ ] Confirm a seed whose only selected-month activity is HM does not qualify, while valid general planting, SI, DS, and TP matches do qualify.
+- [ ] Confirm SI (Start Indoors), DS (Direct Sow), and TP (Transplant) indicators match representative dedicated ranges and legitimate method-aware fallbacks.
+- [ ] Confirm HM (Harvest/Maturity) appears only where stored outdoor-date and maturity data adequately support it, and is omitted for insufficient or ambiguous records.
+- [ ] Confirm a cross-year range such as November–February occupies November, December, January, and February correctly.
+- [ ] At desktop and phone widths, horizontally scroll the timeline and confirm the sticky Seed identity remains usable without page-level horizontal overflow.
+- [ ] Confirm long Seed Name and Variety values remain understandable without widening or breaking timeline rows.
+- [ ] Confirm the activity legend is readable, contrast is sufficient, and abbreviations/patterns provide non-color identification.
+- [ ] Confirm the current month and a selected month have understandable, distinct emphasis.
+- [ ] In Table View, confirm Notes remain collapsed until activated and do not permanently increase every row's height.
+- [ ] Confirm the existing Calendar print report still opens and prints as the established table-oriented report.
+
 ---
 
 ## 17. Test the companion finder
