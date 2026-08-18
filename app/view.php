@@ -12,7 +12,7 @@ function render(string $title, callable $content, array $options = []): void
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title><?= e($title) ?> · <?= e(config('app.name', 'Seed Library')) ?></title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="<?= e(url('assets/app.css')) ?>" rel="stylesheet">
+  <link href="<?= e(url('assets/app.css')) ?>?v=<?= e((string)(@filemtime(BASE_PATH . '/public/assets/app.css') ?: 1)) ?>" rel="stylesheet">
 </head>
 <body class="<?= $print ? 'print-view' : '' ?>">
 <a class="skip-link" href="#main-content">Skip to main content</a>

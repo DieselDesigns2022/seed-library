@@ -576,10 +576,18 @@ First add a second seed to make filters meaningful.
 
 Now test filters from **Seed Inventory**:
 
-### Search filter
+### Quick Search
 
-1. Search for `Tomato`.
-2. Expected: `Tomato / Black Cherry` appears; `Basil / Genovese` does not.
+1. Confirm Quick Search is immediately visible at the top of the Inventory controls.
+2. Confirm Category, Status, Plantable Month, and Planting Method are visible as the common filters.
+3. Confirm the remaining filters are collapsed under **More Filters** by default.
+4. Search for `Tomato`.
+5. Expected: `Tomato / Black Cherry` appears; `Basil / Genovese` does not.
+6. Search for a word that exists only in another seed's Notes, category, Use, companion data, or research text.
+7. Expected: that unrelated seed does not appear unless the word also occurs in its Seed Number, Seed Name, or Variety.
+8. Confirm the results summary shows the active search term and matching seed count.
+9. Click **Clear** or **Clear All**.
+10. Expected: the full Inventory returns.
 
 ### Category filter
 
