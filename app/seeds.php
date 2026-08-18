@@ -18,9 +18,9 @@ function seed_filter_parts(array $filters): array
     $where = [];
     $params = [];
     if (($filters['search'] ?? '') !== '') {
-        $where[] = '(s.seed_number LIKE ? OR s.name LIKE ? OR s.variety LIKE ? OR c.name LIKE ? OR pf.name LIKE ? OR s.plant_type LIKE ? OR s.notes LIKE ? OR EXISTS (SELECT 1 FROM seed_uses su JOIN uses u ON u.id=su.use_id WHERE su.seed_id=s.id AND u.name LIKE ?) OR EXISTS (SELECT 1 FROM companion_relationships cr JOIN seeds cs ON cs.id=IF(cr.seed_id=s.id,cr.companion_seed_id,cr.seed_id) WHERE (cr.seed_id=s.id OR cr.companion_seed_id=s.id) AND (cs.name LIKE ? OR cs.variety LIKE ? OR cs.seed_number LIKE ?)))';
-        $term = '%' . $filters['search'] . '%';
-        array_push($params, ...array_fill(0, 11, $term));
+        $where[] = '(s.seed_number LIKE ? OR s.name LIKE ? OR s.variety LIKE ?)';
+        $term = '%' . trim((string)$filters['search']) . '%';
+        array_push($params, $term, $term, $term);
     }
     foreach (['category_id' => 's.category_id', 'plant_family_id' => 's.plant_family_id', 'status_id' => 's.status_id', 'packet_year' => 's.packet_year'] as $key => $column) {
         if (($filters[$key] ?? '') !== '') { $where[] = "$column = ?"; $params[] = $filters[$key]; }

@@ -3,6 +3,7 @@ declare(strict_types=1);
 require __DIR__ . '/../app/bootstrap.php';
 require __DIR__ . '/../app/view.php';
 require __DIR__ . '/../app/seeds.php';
+require __DIR__ . '/../app/calendar.php';
 require __DIR__ . '/../app/import_export.php';
 require __DIR__ . '/../app/backup.php';
 
@@ -76,7 +77,7 @@ function login_page(): void
         flash('danger', 'Invalid email or password.');
     }
     render('Login', function () use ($locked) { ?>
-    <div class="row justify-content-center"><div class="col-md-5 col-lg-4"><div class="card shadow-sm"><div class="card-body p-4"><h1 class="h3 mb-3">Seed Library Login</h1><?php if ($locked): ?><div class="alert alert-warning">Too many failed attempts. Please wait before trying again.</div><?php endif; ?><form method="post"><?= csrf_field() ?><div class="mb-3"><label class="form-label">Email</label><input class="form-control" type="email" name="email" required autofocus></div><div class="mb-3"><label class="form-label">Password</label><input class="form-control" type="password" name="password" required></div><button class="btn btn-success w-100" <?= $locked ? 'disabled' : '' ?>>Login</button></form></div></div></div></div>
+    <div class="row justify-content-center login-shell"><div class="col-md-6 col-lg-4"><div class="card shadow-sm"><div class="card-body p-4"><p class="eyebrow">Welcome to your garden</p><h1 class="h3 mb-3">Seed Library Login</h1><?php if ($locked): ?><div class="alert alert-warning" role="alert">Too many failed attempts. Please wait before trying again.</div><?php endif; ?><form method="post"><?= csrf_field() ?><div class="mb-3"><label class="form-label" for="login-email">Email</label><input id="login-email" class="form-control" type="email" name="email" autocomplete="username" required autofocus></div><div class="mb-3"><label class="form-label" for="login-password">Password</label><input id="login-password" class="form-control" type="password" name="password" autocomplete="current-password" required></div><button class="btn btn-success w-100" <?= $locked ? 'disabled' : '' ?>>Log in to Seed Library</button></form></div></div></div></div>
     <?php });
 }
 
@@ -191,80 +192,51 @@ function seed_detail_page(int $id): void
     render($seed['name'], function () use ($seed, $uses, $companions, $history) { include BASE_PATH . '/app/templates/seed_detail.php'; });
 }
 
-function calendar_group_rules(): array
-{
-    // Phase 3 inferred groups are centralized here. Fall Crop means a planting
-    // window that includes Aug-Nov (including explicit Plantable Months); the
-    // other groups use existing method, category, and medicinal flag data.
-    return [
-        'direct_sow'=>'Direct Sow', 'start_indoors'=>'Start Indoors', 'transplant'=>'Transplant',
-        'fall_crop'=>'Fall Crop', 'flowers'=>'Flowers', 'herbs'=>'Herbs', 'medicinal'=>'Medicinal',
-    ];
-}
-
-function calendar_month_in_range(int $month, mixed $start, mixed $end): bool
-{
-    if ($start === null || $end === null) return false;
-    $start=(int)$start; $end=(int)$end;
-    return $start <= $end ? $month >= $start && $month <= $end : $month >= $start || $month <= $end;
-}
-
-function calendar_general_month_matches(array $seed, int $month): bool
-{
-    $months=array_map('intval',array_filter(explode(',',(string)($seed['plantable_months']??''))));
-    if ($months) return in_array($month,$months,true);
-    return calendar_month_in_range($month,$seed['planting_start_month']??null,$seed['planting_end_month']??null);
-}
-
-function calendar_method_month_matches(array $seed, string $group, int $month): bool
-{
-    $methods=[
-        'direct_sow'=>['direct_sow',['Direct Sow','Direct Sow or Transplant']],
-        'start_indoors'=>['indoor',['Start Indoors']],
-        'transplant'=>['transplant',['Transplant','Direct Sow or Transplant']],
-    ];
-    if (!isset($methods[$group])) return false;
-    [$prefix,$methodNames]=$methods[$group];
-    $start=$seed[$prefix.'_start_month']??null; $end=$seed[$prefix.'_end_month']??null;
-    // A complete dedicated range is authoritative, including cross-year ranges.
-    if ($start !== null && $end !== null) return calendar_month_in_range($month,$start,$end);
-    // Only method-capable seeds fall back to the general window/month selection.
-    return in_array($seed['planting_method']??null,$methodNames,true) && calendar_general_month_matches($seed,$month);
-}
-
-function calendar_group_matches(array $seed, string $group, int $month): bool
-{
-    if (in_array($group,['direct_sow','start_indoors','transplant'],true)) {
-        return calendar_method_month_matches($seed,$group,$month);
-    }
-    $category=strtolower(trim((string)($seed['category_name']??'')));
-    $months=[];
-    for ($candidate=1;$candidate<=12;$candidate++) if (calendar_general_month_matches($seed,$candidate)) $months[]=$candidate;
-    return match($group) {
-        'fall_crop'=>(bool)array_intersect($months,[8,9,10,11]),
-        'flowers'=>in_array($category,['flower','flowers'],true),
-        'herbs'=>in_array($category,['herb','herbs'],true),
-        'medicinal'=>!empty($seed['medicinal'])||$category==='medicinal',
-        default=>true,
-    };
-}
-
 function calendar_page(): void
 {
-    $month=(int)($_GET['month']??date('n')); if($month<1||$month>12)$month=(int)date('n');
+    $view=($_GET['view']??'visual')==='table'?'table':'visual';
+    $monthValue=(string)($_GET['month']??($view==='table'?date('n'):'all'));
+    $month=$monthValue==='all'?0:(int)$monthValue; if($month<0||$month>12)$month=$view==='table'?(int)date('n'):0;
     $rules=calendar_group_rules(); $group=(string)($_GET['group']??''); if(!isset($rules[$group]))$group='';
     $methodGroups=['direct_sow','start_indoors','transplant'];
     // All and non-method groups retain the established general-month query. Method
     // groups start from inventory so a dedicated range can include a seed even when
     // its general planting window does not overlap the selected month.
-    $seeds=in_array($group,$methodGroups,true)
+    $seeds=($view==='visual' || $month===0 || in_array($group,$methodGroups,true))
         ? seed_query(['sort'=>'planting_start_month'])
         : seed_query(['plantable_month'=>$month,'sort'=>'planting_start_month']);
-    if($group!=='')$seeds=array_values(array_filter($seeds,fn($seed)=>calendar_group_matches($seed,$group,$month)));
-    render('Planting Calendar', function() use($month,$seeds,$rules,$group){ ?>
-    <div class="d-flex flex-wrap justify-content-between align-items-center mb-3"><div><h1>Planting Calendar</h1><p class="text-muted mb-0">Year-independent windows include explicit Plantable Months and cross-year ranges.</p></div><a class="btn btn-outline-secondary" href="<?=e(url('print?report=calendar&month='.$month))?>">Print</a></div>
-    <form class="card card-body mb-3"><div class="row g-2"><div class="col-md-6"><label class="form-label" for="calendar-month">Select Month</label><select id="calendar-month" class="form-select" name="month"><?php for($m=1;$m<=12;$m++):?><option value="<?=$m?>" <?=$m===$month?'selected':''?>><?=e(month_name($m))?></option><?php endfor?></select></div><div class="col-md-6"><label class="form-label" for="calendar-group">Group / Filter</label><select id="calendar-group" class="form-select" name="group"><option value="">All plantable seeds</option><?php foreach($rules as $key=>$label):?><option value="<?=e($key)?>" <?=$group===$key?'selected':''?>><?=e($label)?></option><?php endforeach?></select></div><div class="col-12"><button class="btn btn-success">Show Calendar</button></div></div></form>
-    <div class="card"><div class="card-header fw-bold"><?=e($group!==''?$rules[$group].' · ':'')?><?=e(month_name($month))?> (<?=count($seeds)?>)</div><div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead><tr><th>Seed Number</th><th>Seed Name</th><th>Category</th><th>Planting Method</th><th>Start Planting Date</th><th>Last Planting Date</th><th>Days to Harvest/Maturity</th><th>Notes</th><th>View Seed</th></tr></thead><tbody><?php foreach($seeds as $seed):?><tr><td><?=e($seed['seed_number'])?></td><td><?=e($seed['name'])?></td><td><?=e($seed['category_name']?:'—')?></td><td><?=e($seed['planting_method']?:'—')?></td><td><?=e(date_label($seed['planting_start_month'],$seed['planting_start_day']))?></td><td><?=e(date_label($seed['planting_end_month'],$seed['planting_end_day']))?></td><td><?=e(maturity_display($seed,'—'))?></td><td class="calendar-notes"><?=($seed['notes']??'')!==''?nl2br(e($seed['notes'])):'—'?></td><td><a class="btn btn-sm btn-outline-success" href="<?=e(url('seeds/'.$seed['id']))?>">View Seed</a></td></tr><?php endforeach;if(!$seeds):?><tr><td colspan="9" class="text-muted">No seeds match this month and group.</td></tr><?php endif?></tbody></table></div></div><?php });
+    if($group!=='')$seeds=array_values(array_filter($seeds,function($seed)use($group,$month){
+        if($month!==0)return calendar_group_matches($seed,$group,$month);
+        for($candidate=1;$candidate<=12;$candidate++)if(calendar_group_matches($seed,$group,$candidate))return true;
+        return false;
+    }));
+    if($month!==0 && $view==='visual')$seeds=array_values(array_filter($seeds,function($seed)use($month){
+        return calendar_seed_matches_planting_month($seed,$month);
+    }));
+    render('Planting Calendar', function() use($month,$seeds,$rules,$group,$view){
+        $queryBase=['month'=>$month===0?'all':$month,'group'=>$group]; ?>
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-3"><div><h1>Planting Calendar</h1><p class="text-muted mb-0">Year-independent windows include explicit Plantable Months and cross-year ranges.</p></div><a class="btn btn-outline-secondary" href="<?=e(url('print?report=calendar&month='.($month?:date('n'))))?>">Print</a></div>
+    <nav class="calendar-view-switch mb-3" aria-label="Calendar view"><a class="btn <?=$view==='visual'?'btn-success':'btn-outline-success'?>" href="<?=e(url('calendar?'.http_build_query($queryBase+['view'=>'visual'])))?>" <?=$view==='visual'?'aria-current="page"':''?>>Visual Calendar</a> <a class="btn <?=$view==='table'?'btn-success':'btn-outline-success'?>" href="<?=e(url('calendar?'.http_build_query($queryBase+['view'=>'table'])))?>" <?=$view==='table'?'aria-current="page"':''?>>Table View</a></nav>
+    <form class="card card-body mb-3"><input type="hidden" name="view" value="<?=e($view)?>"><div class="row g-2"><div class="col-md-6"><label class="form-label" for="calendar-month">Month</label><select id="calendar-month" class="form-select" name="month"><option value="all" <?=$month===0?'selected':''?>>All months</option><?php for($m=1;$m<=12;$m++):?><option value="<?=$m?>" <?=$m===$month?'selected':''?>><?=e(month_name($m))?></option><?php endfor?></select></div><div class="col-md-6"><label class="form-label" for="calendar-group">Group / Filter</label><select id="calendar-group" class="form-select" name="group"><option value="">All seeds</option><?php foreach($rules as $key=>$label):?><option value="<?=e($key)?>" <?=$group===$key?'selected':''?>><?=e($label)?></option><?php endforeach?></select></div><div class="col-12"><button class="btn btn-success">Show Calendar</button></div></div></form>
+    <?php if($view==='visual'): calendar_visual_view($seeds,$month,$group,$rules); else: calendar_table_view($seeds,$month,$group,$rules); endif;
+    });
+}
+
+function calendar_visual_view(array $seeds, int $month, string $group, array $rules): void
+{
+    $activities=['start_indoors'=>['SI','Start Indoors'],'direct_sow'=>['DS','Direct Sow'],'transplant'=>['TP','Transplant'],'harvest'=>['HM','Harvest / Maturity']];
+    $current=(int)date('n'); ?>
+    <section aria-labelledby="visual-calendar-heading"><h2 id="visual-calendar-heading" class="h4">Visual Calendar</h2>
+    <div class="calendar-legend" aria-label="Activity legend"><?php foreach($activities as $key=>[$abbr,$label]):?><span class="calendar-legend-item activity-<?=e($key)?>"><b><?=e($abbr)?></b> <?=e($label)?></span><?php endforeach?></div>
+    <p class="small text-muted">Each month is divided into early (days 1–15) and late (days 16–end). Harvest appears only when an exact outdoor date and maturity duration are stored.</p>
+    <?php if(!$seeds):?><div class="card card-body text-muted">No seeds match the selected filters.</div><?php return;endif?>
+    <div class="calendar-timeline" tabindex="0" aria-label="Scrollable planting calendar"><table><thead><tr><th class="calendar-seed-heading" rowspan="2">Seed</th><?php for($m=1;$m<=12;$m++):$highlight=($m===$month?' selected-month':'').($m===$current?' current-month':'');?><th class="calendar-month<?=$highlight?>" colspan="2" scope="colgroup"><?=e(month_name($m))?></th><?php endfor?></tr><tr><?php for($m=1;$m<=12;$m++):?><th class="calendar-half" scope="col">Early</th><th class="calendar-half" scope="col">Late</th><?php endfor?></tr></thead><tbody>
+    <?php foreach($seeds as $seed):$timeline=calendar_seed_timeline($seed);$hasData=(bool)array_filter($timeline);?><tr><th class="calendar-seed" scope="row"><span class="calendar-seed-number"><?=e($seed['seed_number'])?></span><a href="<?=e(url('seeds/'.$seed['id']))?>"><?=e($seed['name'])?></a><?php if(($seed['variety']??'')!==''):?><small><?=e($seed['variety'])?></small><?php endif?></th><?php for($segment=1;$segment<=24;$segment++):$cell=[];foreach($activities as $key=>[$abbr,$label])if(in_array($segment,$timeline[$key],true))$cell[]=[$key,$abbr,$label];$cellMonth=(int)ceil($segment/2);$half=$segment%2?'early':'late';$classes=($cellMonth===$month?' selected-month':'').($cellMonth===$current?' current-month':'');?><td class="calendar-cell<?=$classes?>"><?php foreach($cell as [$key,$abbr,$label]):?><span class="calendar-activity activity-<?=e($key)?>" title="<?=e($label.' — '.month_name($cellMonth).' '.$half)?>"><span aria-hidden="true"><?=e($abbr)?></span><span class="visually-hidden"><?=e($label.' in '.month_name($cellMonth).', '.$half.' month')?></span></span><?php endforeach?></td><?php endfor?></tr><?php if(!$hasData):?><tr class="calendar-empty-note"><td colspan="25">No usable planting timeline data for <?=e($seed['name'])?>; maturity is not shown without sufficient source data.</td></tr><?php endif;endforeach?></tbody></table></div></section><?php
+}
+
+function calendar_table_view(array $seeds, int $month, string $group, array $rules): void
+{ ?>
+    <div class="card"><div class="card-header fw-bold"><?=e($group!==''?$rules[$group].' · ':'')?><?=e($month===0?'All months':month_name($month))?> (<?=count($seeds)?>)</div><div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead><tr><th>Seed #</th><th>Seed</th><th>Category</th><th>Method</th><th>Start</th><th>Last</th><th>Days to Harvest/Maturity</th><th>Notes</th><th></th></tr></thead><tbody><?php foreach($seeds as $seed):?><tr><td><?=e($seed['seed_number'])?></td><td><strong><?=e($seed['name'])?></strong><?php if(($seed['variety']??'')!==''):?><br><small><?=e($seed['variety'])?></small><?php endif?></td><td><?=e($seed['category_name']?:'—')?></td><td><?=e($seed['planting_method']?:'—')?></td><td><?=e(date_label($seed['planting_start_month'],$seed['planting_start_day']))?></td><td><?=e(date_label($seed['planting_end_month'],$seed['planting_end_day']))?></td><td><?=e(maturity_display($seed,'—'))?></td><td><?php if(($seed['notes']??'')!==''):?><details><summary class="small fw-semibold text-success" style="cursor:pointer">View Notes</summary><div class="small mt-2 p-2 bg-light border rounded text-start calendar-notes"><?=nl2br(e($seed['notes']))?></div></details><?php else:?>—<?php endif?></td><td class="text-nowrap"><a class="btn btn-sm btn-outline-success" href="<?=e(url('seeds/'.$seed['id']))?>">View Seed</a></td></tr><?php endforeach;if(!$seeds):?><tr><td colspan="9" class="text-muted">No seeds match the selected filters.</td></tr><?php endif?></tbody></table></div></div><?php
 }
 
 /**

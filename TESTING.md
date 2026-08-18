@@ -2,6 +2,20 @@
 
 This guide walks through testing Seed Library from a clean checkout through the core Version 1.0 workflows.
 
+## Phase 6 automated and live verification boundary
+
+Run the complete source suite from the repository root:
+
+```bash
+find app public scripts tests -name '*.php' -print0 | xargs -0 -n1 php -l
+for t in tests/*.php; do php "$t"; done
+git diff --check
+```
+
+The Phase 6 static test checks response headers, the explicit Secure-cookie production override, enforcement of private import permissions and superseded-upload cleanup, login labels, skip navigation, navigation naming, and visible keyboard focus. It does not substitute for an authenticated browser or database.
+
+On the production-like VPS, test at narrow phone and desktop widths with keyboard-only navigation. Exercise Login, Dashboard, Inventory filters/cards, Add/Edit/Detail (including **Save and Add Another**), July Calendar, Onion Companion Finder, management pages, import review, exports, print, and owner backup/restore. With a disposable copy of representative data, capture `EXPLAIN` plans and timings for Inventory/global search/filter/count/calendar/companion queries at 200+ and 500+ records. Confirm HTTPS sets the session cookie `Secure`, all writable paths are outside `public/`, import files are mode `0600`, errors expose no internal paths or SQL, and an approximately 100-row import can be corrected before confirmation. These browser, authenticated MySQL, scale, and VPS checks are **pending live testing** until recorded in the deployment log; never alter owner seed data to manufacture them.
+
 The project is a framework-light PHP/MySQL application. It does **not** require Composer for the current codebase. XLSX import/export uses native PHP extensions only:
 
 - `ZipArchive` from the PHP `zip` extension.
@@ -562,10 +576,18 @@ First add a second seed to make filters meaningful.
 
 Now test filters from **Seed Inventory**:
 
-### Search filter
+### Quick Search
 
-1. Search for `Tomato`.
-2. Expected: `Tomato / Black Cherry` appears; `Basil / Genovese` does not.
+1. Confirm Quick Search is immediately visible at the top of the Inventory controls.
+2. Confirm Category, Status, Plantable Month, and Planting Method are visible as the common filters.
+3. Confirm the remaining filters are collapsed under **More Filters** by default.
+4. Search for `Tomato`.
+5. Expected: `Tomato / Black Cherry` appears; `Basil / Genovese` does not.
+6. Search for a word that exists only in another seed's Notes, category, Use, companion data, or research text.
+7. Expected: that unrelated seed does not appear unless the word also occurs in its Seed Number, Seed Name, or Variety.
+8. Confirm the results summary shows the active search term and matching seed count.
+9. Click **Clear** or **Clear All**.
+10. Expected: the full Inventory returns.
 
 ### Category filter
 
@@ -618,6 +640,23 @@ Now test filters from **Seed Inventory**:
 13. Expected: neither test seed appears.
 
 The calendar is year-independent. It uses stored month/day windows and displays dates without a year.
+
+### Phase 6 Visual Calendar live verification — pending
+
+These authenticated browser/mobile checks remain **pending until live tested and recorded**:
+
+- [ ] Confirm `/calendar` opens in Visual Calendar by default and switching to Table View and back preserves applicable Month and Group filters.
+- [ ] Confirm All Months shows the full year, and a specific month keeps the full-year timeline visible while limiting results to seeds plantable/actionable in that month.
+- [ ] Confirm a seed whose only selected-month activity is HM does not qualify, while valid general planting, SI, DS, and TP matches do qualify.
+- [ ] Confirm SI (Start Indoors), DS (Direct Sow), and TP (Transplant) indicators match representative dedicated ranges and legitimate method-aware fallbacks.
+- [ ] Confirm HM (Harvest/Maturity) appears only where stored outdoor-date and maturity data adequately support it, and is omitted for insufficient or ambiguous records.
+- [ ] Confirm a cross-year range such as November–February occupies November, December, January, and February correctly.
+- [ ] At desktop and phone widths, horizontally scroll the timeline and confirm the sticky Seed identity remains usable without page-level horizontal overflow.
+- [ ] Confirm long Seed Name and Variety values remain understandable without widening or breaking timeline rows.
+- [ ] Confirm the activity legend is readable, contrast is sufficient, and abbreviations/patterns provide non-color identification.
+- [ ] Confirm the current month and a selected month have understandable, distinct emphasis.
+- [ ] In Table View, confirm Notes remain collapsed until activated and do not permanently increase every row's height.
+- [ ] Confirm the existing Calendar print report still opens and prints as the established table-oriented report.
 
 ---
 
