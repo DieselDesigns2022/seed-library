@@ -4,6 +4,7 @@ require __DIR__ . '/../app/bootstrap.php';
 require __DIR__ . '/../app/view.php';
 require __DIR__ . '/../app/seeds.php';
 require __DIR__ . '/../app/calendar.php';
+require __DIR__ . '/../app/garden.php';
 require __DIR__ . '/../app/import_export.php';
 require __DIR__ . '/../app/backup.php';
 
@@ -38,8 +39,14 @@ function match_route(string $path): void
         try { $id=duplicate_seed($sourceId); flash('success','Seed duplicated with the same physical seed number. Edit it only if you need a different label.'); redirect('seeds/'.$id.'/edit'); }
         catch (PDOException $e) { error_log((string)$e); flash('danger','The duplicate could not be created. The original seed was not changed.'); redirect('seeds/'.$sourceId); }
     }
-    if (preg_match('#^seeds/(\d+)/delete$#', $path, $m)) { require_post(); verify_csrf(); delete_seed((int)$m[1]); flash('success','Seed deleted.'); redirect('seeds'); }
+    if (preg_match('#^seeds/(\d+)/delete$#', $path, $m)) { require_post(); verify_csrf(); try{delete_seed((int)$m[1]);flash('success','Seed deleted.');}catch(PDOException $e){error_log((string)$e);flash('danger','This seed cannot be deleted while My Garden planting history references it. Archive the seed instead.');} redirect('seeds'); }
     if ($path === 'calendar') { calendar_page(); return; }
+    if ($path === 'garden') { garden_page(); return; }
+    if ($path === 'garden/create') { garden_form_page(null); return; }
+    if (preg_match('#^garden/(\d+)$#',$path,$m)) { garden_form_page((int)$m[1]); return; }
+    if (preg_match('#^garden/(\d+)/status$#',$path,$m)) { garden_status_action((int)$m[1]); return; }
+    if ($path === 'winter-sowing') { winter_sowing_page(); return; }
+    if (preg_match('#^winter-sowing/(\d+)/research$#',$path,$m)) { winter_research_action((int)$m[1]); return; }
     if ($path === 'companions') { companions_page(); return; }
     if ($path === 'import') { import_page(); return; }
     if ($path === 'export') { export_page(); return; }
@@ -136,12 +143,65 @@ function dashboard_page(): void
     $stmt = db()->prepare('SELECT COUNT(*) FROM seeds WHERE planting_start_month IS NOT NULL AND planting_start_day IS NOT NULL AND planting_end_month IS NOT NULL AND planting_end_day IS NOT NULL AND (((planting_start_month*100+planting_start_day) <= (planting_end_month*100+planting_end_day) AND ? > (planting_end_month*100+planting_end_day)) OR ((planting_start_month*100+planting_start_day) > (planting_end_month*100+planting_end_day) AND ? > (planting_end_month*100+planting_end_day) AND ? < (planting_start_month*100+planting_start_day)))');
     $stmt->execute([$today,$today,$today]);
     $counts['Seeds Past Their Recommended Planting Window'] = (int)$stmt->fetchColumn();
-    render('Dashboard', function () use ($counts) { ?>
+    $frostCountdowns=[
+        'First Frost'=>recurring_date_countdown(setting('average_first_frost','10-15')),
+        'Last Frost'=>recurring_date_countdown(setting('average_last_frost','05-05')),
+    ];
+    render('Dashboard', function () use ($counts,$frostCountdowns) { ?>
     <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4"><div><h1>Dashboard</h1><p class="text-muted mb-0">Zone <?= e(setting('zone','6B')) ?> · <?= e(setting('region','Southeast Michigan')) ?> · Last frost <?= e(setting_date_label('average_last_frost','05-05')) ?></p></div><div class="no-print"><a class="btn btn-success" href="<?= e(url('seeds/create')) ?>">Add Seed</a> <a class="btn btn-outline-success" href="<?= e(url('import')) ?>">Import</a></div></div>
     <form action="<?= e(url('seeds')) ?>" class="card card-body mb-4"><label class="form-label" for="dashboard-search">Dashboard Quick Search</label><div class="input-group"><input id="dashboard-search" class="form-control" name="search" placeholder="Seed number, name, variety, category, family, use, companion, or notes"><button class="btn btn-success">Search Inventory</button></div></form>
+    <div class="row g-3 mb-4"><?php foreach($frostCountdowns as $label=>$days):?><div class="col-md-6"><div class="card card-metric shadow-sm h-100"><div class="card-body"><div class="text-muted"><?=e($label)?> Countdown</div><div class="h2 mb-0"><?= $days===null?e($label).' Unavailable':e($days).' '.($days===1?'Day':'Days').' Until '.e($label) ?></div></div></div></div><?php endforeach?></div>
     <div class="row g-3 mb-4"><?php foreach ($counts as $label => $count): ?><div class="col-6 col-lg-3"><div class="card card-metric shadow-sm h-100"><div class="card-body"><div class="text-muted small"><?= e($label) ?></div><div class="display-6 fw-bold"><?= e($count) ?></div></div></div></div><?php endforeach; ?></div>
     <div class="card card-body"><h2 class="h4">Quick Actions</h2><div class="d-flex flex-wrap gap-2"><a class="btn btn-outline-success" href="<?= e(url('seeds')) ?>">View All Seeds</a><a class="btn btn-outline-success" href="<?= e(url('seeds/create')) ?>">Add New Seed</a><a class="btn btn-outline-success" href="<?= e(url('calendar')) ?>">Planting Calendar</a><a class="btn btn-outline-success" href="<?= e(url('companions')) ?>">Companion Finder</a><a class="btn btn-outline-success" href="<?= e(url('import')) ?>">Import Seeds</a><a class="btn btn-outline-secondary" href="<?= e(url('export')) ?>">Export</a><a class="btn btn-outline-secondary" href="<?= e(url('print')) ?>">Print</a></div></div>
     <?php });
+}
+
+function garden_page(): void
+{
+    $groups=['Needs Attention'=>[],'Currently Growing'=>[],'Upcoming Transplants'=>[],'Upcoming Harvests'=>[],'Archived/Past Plantings'=>[]]; $today=date('Y-m-d');
+    foreach(garden_all() as $p){
+        $transplant=garden_expected_transplant($p,setting('average_last_frost','05-05'));$harvest=garden_expected_harvest($p);$germination=garden_expected_germination($p);
+        $p['_transplant']=$transplant;$p['_harvest']=$harvest;$p['_germination']=$germination;
+        $attentionReasons=[];
+        if($germination&&$germination[1]<$today&&in_array($p['status'],['Sown','Germinating'],true))$attentionReasons[]='Expected germination window ended '.garden_display_date($germination[1]).'.';
+        if($transplant&&$transplant[1]<$today&&empty($p['actual_transplant_date']))$attentionReasons[]='Expected transplant window ended '.garden_display_date($transplant[1]).' and no actual transplant date is recorded.';
+        if($harvest&&$harvest[1]<$today&&empty($p['actual_harvest_date']))$attentionReasons[]='Expected harvest window ended '.garden_display_date($harvest[1]).' and no actual harvest date is recorded.';
+        $p['_attention_reasons']=$attentionReasons;
+        if(in_array($p['status'],['Archived','Harvested','Failed'],true))$groups['Archived/Past Plantings'][]=$p;
+        else {
+            $groups['Currently Growing'][]=$p;
+            if($transplant&&$transplant[1]>=$today)$groups['Upcoming Transplants'][]=$p;
+            if($harvest&&$harvest[1]>=$today)$groups['Upcoming Harvests'][]=$p;
+            if($attentionReasons)$groups['Needs Attention'][]=$p;
+        }
+    }
+    render('My Garden',function()use($groups){include BASE_PATH.'/app/templates/garden_index.php';});
+}
+
+function garden_form_page(?int $id): void
+{
+    $planting=$id?garden_find($id):null;if($id&&!$planting){http_response_code(404);render('Planting Not Found',fn()=>print '<h1>Planting not found</h1>');return;}
+    if(is_post()){verify_csrf();try{$saved=garden_save($id,$_POST);flash('success',$id?'Planting updated.':'Planting added to My Garden.');redirect('garden/'.$saved);}catch(RuntimeException $e){flash('danger',$e->getMessage());$planting=garden_failed_form_state($planting?:[],$_POST);}}
+    if(!$id&&!is_post()){$seedId=(int)($_GET['seed_id']??0);$method=(string)($_GET['method']??'');$month=(int)($_GET['month']??0);$planting=['seed_id'=>$seedId,'planted_date'=>date('Y-m-d'),'planting_method'=>in_array($method,garden_methods(),true)?$method:'Direct Sown','quantity'=>1,'location'=>'','notes'=>'','actual_transplant_date'=>'','actual_harvest_date'=>'','status'=>'Planned'];if($method==='Winter Sown'&&(!record_exists('seeds',$seedId)||!winter_seed_is_eligible(seed_find($seedId)?:[],$month))){flash('warning','That seed is not confirmed eligible for the selected winter-sowing month.');$planting['seed_id']=0;}}
+    $seeds=db()->query('SELECT id,seed_number,name,variety FROM seeds ORDER BY name,variety')->fetchAll();render($id?'Edit Planting':'Add Planting',function()use($planting,$seeds,$id){include BASE_PATH.'/app/templates/garden_form.php';});
+}
+
+function garden_status_action(int $id): void
+{
+    require_post();verify_csrf();$p=garden_find($id);$status=(string)($_POST['status']??'');if(!$p){flash('danger','Planting not found.');redirect('garden');}if(!in_array($status,garden_statuses(),true)){flash('danger','Invalid planting status.');redirect('garden/'.$id);} $stmt=db()->prepare('UPDATE garden_plantings SET status=? WHERE id=?');$stmt->execute([$status,$id]);flash('success','Planting status updated.');redirect('garden');
+}
+
+function winter_sowing_page(): void
+{
+    $month=(int)($_GET['month']??12);if(!isset(winter_sowing_month_choices()[$month]))$month=12;
+    $seeds=db()->query('SELECT id,seed_number,name,variety,winter_sowing_suitability,winter_sowing_months,cold_stratification,winter_hardiness,winter_sowing_notes,winter_sowing_citation FROM seeds ORDER BY name,variety')->fetchAll();
+    $eligible=array_values(array_filter($seeds,fn($s)=>winter_seed_is_eligible($s,$month)));$unresearched=array_values(array_filter($seeds,fn($s)=>($s['winter_sowing_suitability']??'Unknown')==='Unknown'));
+    render('Winter Sowing Planner',function()use($month,$seeds,$eligible,$unresearched){include BASE_PATH.'/app/templates/winter_sowing.php';});
+}
+
+function winter_research_action(int $id): void
+{
+    require_post();verify_csrf();try{winter_save($id,$_POST);flash('success','Winter-sowing research fields saved.');}catch(RuntimeException $e){flash('danger',$e->getMessage());}redirect('winter-sowing?month='.(int)($_POST['return_month']??12));
 }
 
 function seeds_page(): void

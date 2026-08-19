@@ -46,3 +46,15 @@ Run `2026-08-14-phase-4-growing-data.sql` on an existing installation. The migra
 ## Phase 5
 
 Apply `2026-08-14-phase-5-settings-defaults.sql` after the Phase 4 migrations. It is idempotent and uses `INSERT IGNORE` to add only missing Phase 5 lookup values and settings, so custom lookup values and existing saved settings remain unchanged. Fresh installs obtain the same starter values from `schema.sql`, which preserves the existing descriptions for Vegetable, Herb, Flower, and Medicinal.
+
+## Phase 7
+
+After backing up, apply the one-time additive migration:
+
+```bash
+mysql -u YOUR_USER -p YOUR_DATABASE < database/2026-08-19-phase-7-garden-winter-sowing.sql
+```
+
+It adds `garden_plantings`, whose non-unique `seed_id` supports unlimited independent planting history and whose restrictive foreign key prevents history from disappearing with a seed. It also adds seed-level `winter_sowing_suitability`, `winter_sowing_months`, `cold_stratification`, `winter_hardiness`, `winter_sowing_notes`, and `winter_sowing_citation`. Existing seeds default to Unknown with no eligible months; the migration does not infer or populate research and does not modify or duplicate either frost setting. Test this one-time migration against a restored production backup before deployment.
+
+Phase 7 backup downloads use format version 2 and contain every current table. Restore continues to accept complete pre-Phase-7 version-1 backups: validation permits exactly the legacy table set, normalizes `garden_plantings` to an empty array, and relies on schema defaults for the six Winter Sowing columns absent from legacy seed rows. Version 2 requires every current table. Both versions reject unexpected tables and invalid owners, and all other versions are unsupported.

@@ -350,7 +350,8 @@ function duplicate_seed(int $id): int
     if ($ownsTransaction) $pdo->beginTransaction(); else $pdo->exec("SAVEPOINT $savepoint");
     try {
         $seed=seed_find($id); if (!$seed) throw new RuntimeException('Seed not found.');
-        $data=array_intersect_key($seed,array_flip(seed_columns())); $data['name']=$data['name'].' (Copy)'; $columns=array_keys($data);
+        $researchColumns=['winter_sowing_suitability','winter_sowing_months','cold_stratification','winter_hardiness','winter_sowing_notes','winter_sowing_citation'];
+        $data=array_intersect_key($seed,array_flip(array_merge(seed_columns(),$researchColumns))); $data['name']=$data['name'].' (Copy)'; $columns=array_keys($data);
         $stmt=$pdo->prepare('INSERT INTO seeds ('.implode(', ',$columns).') VALUES ('.implode(', ',array_fill(0,count($columns),'?')).')'); $stmt->execute(array_values($data));
         $newId=(int)$pdo->lastInsertId();
         $oldPost=$_POST; $_POST=array_merge($_POST,array_intersect_key($seed,array_flip(['storage_box','container','envelope','row_label','slot','location_notes'])));
