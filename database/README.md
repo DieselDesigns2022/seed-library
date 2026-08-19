@@ -47,7 +47,7 @@ Run `2026-08-14-phase-4-growing-data.sql` on an existing installation. The migra
 
 Apply `2026-08-14-phase-5-settings-defaults.sql` after the Phase 4 migrations. It is idempotent and uses `INSERT IGNORE` to add only missing Phase 5 lookup values and settings, so custom lookup values and existing saved settings remain unchanged. Fresh installs obtain the same starter values from `schema.sql`, which preserves the existing descriptions for Vegetable, Herb, Flower, and Medicinal.
 
-## Phase 7 implementation pass 1
+## Phase 7
 
 After backing up, apply the one-time additive migration:
 
