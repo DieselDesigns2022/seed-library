@@ -140,6 +140,13 @@ function recurring_date_countdown(string $mmdd, ?DateTimeImmutable $now=null): ?
     return max(0,(int)$today->diff($target)->format('%a'));
 }
 
+function garden_display_date(?string $date): string
+{
+    if(!$date || !valid_date_string($date)) return '';
+    $d=new DateTimeImmutable($date);
+    return $d->format('Y')===date('Y') ? $d->format('F jS') : $d->format('F jS, Y');
+}
+
 function winter_validate(array $input): array
 {
     $errors=[];

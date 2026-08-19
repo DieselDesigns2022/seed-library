@@ -162,12 +162,17 @@ function garden_page(): void
     foreach(garden_all() as $p){
         $transplant=garden_expected_transplant($p,setting('average_last_frost','05-05'));$harvest=garden_expected_harvest($p);$germination=garden_expected_germination($p);
         $p['_transplant']=$transplant;$p['_harvest']=$harvest;$p['_germination']=$germination;
+        $attentionReasons=[];
+        if($germination&&$germination[1]<$today&&in_array($p['status'],['Sown','Germinating'],true))$attentionReasons[]='Expected germination window ended '.garden_display_date($germination[1]).'.';
+        if($transplant&&$transplant[1]<$today&&empty($p['actual_transplant_date']))$attentionReasons[]='Expected transplant window ended '.garden_display_date($transplant[1]).' and no actual transplant date is recorded.';
+        if($harvest&&$harvest[1]<$today&&empty($p['actual_harvest_date']))$attentionReasons[]='Expected harvest window ended '.garden_display_date($harvest[1]).' and no actual harvest date is recorded.';
+        $p['_attention_reasons']=$attentionReasons;
         if(in_array($p['status'],['Archived','Harvested','Failed'],true))$groups['Archived/Past Plantings'][]=$p;
         else {
             $groups['Currently Growing'][]=$p;
             if($transplant&&$transplant[1]>=$today)$groups['Upcoming Transplants'][]=$p;
             if($harvest&&$harvest[1]>=$today)$groups['Upcoming Harvests'][]=$p;
-            if(($germination&&$germination[1]<$today&&in_array($p['status'],['Sown','Germinating'],true))||($transplant&&$transplant[1]<$today&&empty($p['actual_transplant_date']))||($harvest&&$harvest[1]<$today&&empty($p['actual_harvest_date'])))$groups['Needs Attention'][]=$p;
+            if($attentionReasons)$groups['Needs Attention'][]=$p;
         }
     }
     render('My Garden',function()use($groups){include BASE_PATH.'/app/templates/garden_index.php';});
