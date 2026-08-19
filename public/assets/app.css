@@ -15,6 +15,9 @@ main { max-width: 1600px; margin-inline: auto; }
 .card { border-color: #d8d2bd; border-radius: .75rem; }
 .card-header { background: #eef2e7; border-color: #d8d2bd; }
 .card-metric { border-left: .35rem solid var(--garden-green); }
+.frost-card { background:#fffdf7; box-shadow:0 .2rem .75rem rgba(43,59,43,.08); }
+.frost-card .frost-label { color:var(--garden-brown); font-size:.75rem; font-weight:750; letter-spacing:.07em; text-transform:uppercase; }
+.frost-card .frost-value { color:var(--garden-green-dark); font-size:clamp(1.35rem,2.5vw,2rem); font-weight:700; line-height:1.2; }
 .eyebrow { color: var(--garden-brown); font-weight: 700; letter-spacing: .08em; text-transform: uppercase; font-size: .78rem; }
 .login-shell { padding-top: clamp(1rem, 8vh, 6rem); }
 .form-label { font-weight: 650; }
@@ -60,6 +63,77 @@ main { max-width: 1600px; margin-inline: auto; }
 .calendar-empty-note td { padding:.2rem .5rem .35rem 11.5rem; color:#626a64; font-size:.75rem; background:#faf9f4; }
 .companion-row .remove-companion { padding-left:.55rem; padding-right:.55rem; }
 pre { max-width: 100%; overflow-wrap: anywhere; white-space: pre-wrap; }
+
+/* Phase 7 planning surfaces */
+.garden-section { margin-bottom:2.25rem; }
+.garden-section-heading,.section-title-row { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1rem; padding-bottom:.65rem; border-bottom:2px solid #d7decf; }
+.garden-section-heading h2,.section-title-row h2 { color:var(--garden-green-dark); font-weight:750; }
+.garden-section-heading p { margin-top:.3rem; color:#76511f; font-size:.9rem; }
+.garden-count { display:inline-flex; align-items:center; justify-content:center; min-width:1.8rem; min-height:1.8rem; margin-left:.35rem; padding:.15rem .55rem; border:1px solid #b8c5b5; border-radius:999px; background:#eef2e7; color:var(--garden-green-dark); font-size:.78rem; font-weight:800; vertical-align:middle; }
+.garden-section-attention { padding:1rem; border:1px solid #d6b66a; border-radius:.85rem; background:#fff9e9; }
+.garden-section-attention .garden-section-heading { border-color:#c08a22; }
+.garden-empty { padding:.9rem 1rem; border:1px dashed #c8c5b6; border-radius:.65rem; color:#687169; background:rgba(255,255,255,.45); }
+.garden-planting-card { overflow:hidden; border:1px solid #cbd2c4; box-shadow:0 .2rem .7rem rgba(43,59,43,.08); }
+.garden-planting-card.needs-attention { border-left:4px solid #b77912; }
+.garden-planting-card .card-body { display:flex; flex-direction:column; padding:1.15rem; }
+.garden-card-header { display:flex; align-items:flex-start; justify-content:space-between; gap:.75rem; margin-bottom:.9rem; padding-bottom:.75rem; border-bottom:1px solid #e1e4d9; }
+.garden-card-header a { color:var(--garden-green-dark); text-decoration-thickness:1px; text-underline-offset:.18em; }
+.garden-variety { color:var(--garden-brown); font-weight:500; }
+.garden-status,.research-badge { flex:0 0 auto; padding:.3rem .65rem; border:1px solid transparent; border-radius:999px; font-size:.72rem; font-weight:750; letter-spacing:.02em; line-height:1.25; }
+.status-planned { background:#eeeae0; border-color:#c9c0aa; color:#514a3c; }
+.status-sown { background:#e6eed9; border-color:#9caf78; color:#314d20; }
+.status-germinating { background:#fff0bf; border-color:#d2ae45; color:#624a00; }
+.status-growing { background:#dceddc; border-color:#83ac84; color:#1d542b; }
+.status-transplanted { background:#dcebea; border-color:#7aa8a4; color:#174b47; }
+.status-harvesting { background:#f4e2c5; border-color:#c49450; color:#68420c; }
+.status-harvested { background:#e7e1ef; border-color:#a89aba; color:#49345d; }
+.status-failed { background:#f2dddd; border-color:#c38b8b; color:#742828; }
+.status-archived { background:#e5e7e5; border-color:#aeb4ae; color:#404740; }
+.garden-primary-details { display:grid; grid-template-columns:1.35fr 1fr; gap:.75rem 1.25rem; margin:0 0 1rem; }
+.garden-primary-details div { min-width:0; }
+.garden-primary-details dt,.garden-label,.winter-facts dt { color:var(--garden-brown); font-size:.72rem; font-weight:800; letter-spacing:.055em; text-transform:uppercase; }
+.garden-primary-details dd { margin:.15rem 0 0; color:#253e2c; font-weight:650; overflow-wrap:anywhere; }
+.detail-separator { color:#a18f6c; padding-inline:.12rem; }
+.garden-date-grid { overflow:hidden; margin-bottom:.9rem; border:1px solid #dde1d7; border-radius:.55rem; background:#fafbf7; }
+.garden-date-row { display:grid; grid-template-columns:minmax(9.5rem,.85fr) minmax(0,1.35fr); gap:.75rem; align-items:baseline; padding:.48rem .65rem; }
+.garden-date-row + .garden-date-row { border-top:1px solid #e5e7df; }
+.garden-date-value { color:#405d47; font-weight:600; }
+.garden-date-row.actual-date { background:#f1f6eb; }
+.garden-date-row.actual-date .garden-date-value { color:var(--garden-green-dark); font-weight:750; }
+.calculated { display:inline-block; margin-left:.3rem; color:#667269; font-size:.68rem; font-style:italic; font-weight:500; }
+.calculated::before { content:"("; }.calculated::after { content:")"; }
+.garden-unavailable { color:#606a62; font-size:.84rem; font-style:italic; }
+.garden-attention-note { margin:.1rem 0 .8rem; padding:.65rem .75rem; border-left:3px solid #b77912; border-radius:.25rem; background:#fff4d6; color:#5d4316; font-size:.84rem; }
+.garden-card-actions { display:flex; flex-wrap:wrap; gap:.5rem; margin-top:auto; padding-top:.3rem; }
+.winter-month-nav { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.65rem; margin-bottom:2rem; padding:.4rem; border:1px solid #ccd4c6; border-radius:.8rem; background:#eef2e7; }
+.winter-month-link { display:flex; flex-direction:column; align-items:center; padding:.65rem .5rem; border:1px solid transparent; border-radius:.55rem; color:var(--garden-green-dark); font-weight:700; text-decoration:none; }
+.winter-month-link small { margin-top:.1rem; color:#59645b; font-size:.68rem; font-weight:500; }
+.winter-month-link:hover { border-color:#9eb09a; background:#fffdf7; color:var(--garden-green); }
+.winter-month-link.active { border-color:var(--garden-green); background:var(--garden-green); box-shadow:0 .15rem .35rem rgba(23,61,40,.18); color:#fff; }
+.winter-month-link.active small { color:#e5f0e6; }
+.winter-seed-card { border-top:3px solid var(--garden-gold); box-shadow:0 .15rem .55rem rgba(43,59,43,.07); }
+.winter-seed-card .card-body { display:flex; flex-direction:column; padding:1rem; }
+.winter-seed-card h3 { color:var(--garden-green-dark); }
+.winter-facts { display:grid; grid-template-columns:1fr 1fr; gap:.6rem; margin:.15rem 0 .9rem; }
+.winter-facts div { padding:.5rem; border-radius:.4rem; background:#f3f5ed; }
+.winter-facts dd { margin:.12rem 0 0; color:#314736; font-weight:650; }
+.winter-seed-card .btn { align-self:flex-start; margin-top:auto; white-space:normal; }
+.winter-research-section .section-title-row { margin-bottom:.75rem; }
+.winter-research .accordion-item { overflow:hidden; margin-bottom:.5rem; border:1px solid #cdd3c7; border-radius:.55rem; }
+.winter-research .accordion-button { gap:.75rem; padding:.8rem 1rem; background:#f8f7f0; color:var(--garden-green-dark); font-weight:700; }
+.winter-research .accordion-button:not(.collapsed) { background:#e9f0e4; box-shadow:inset 0 -1px 0 #cdd3c7; }
+.winter-research .accordion-button::after { margin-left:.25rem; }
+.research-seed { display:flex; flex:1 1 auto; align-items:baseline; gap:.65rem; min-width:0; }
+.research-seed small { color:var(--garden-brown); font-weight:750; }
+.research-badge { margin-left:auto; }
+.suitability-suitable { background:#dceddc; border-color:#83ac84; color:#1d542b; }
+.suitability-not-suitable { background:#f2dddd; border-color:#c38b8b; color:#742828; }
+.suitability-unknown { background:#eeeae0; border-color:#c9c0aa; color:#514a3c; }
+.winter-research .accordion-body { padding:1.25rem; background:#fffdf8; }
+.winter-month-checks { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.5rem; }
+.winter-month-checks .form-check { margin:0; padding:.55rem .6rem .55rem 2rem; border:1px solid #d8ddd1; border-radius:.45rem; background:#f7f8f3; }
+.research-textarea { min-height:8rem; resize:vertical; background:#fff; line-height:1.5; }
+.research-actions { padding-top:.25rem; border-top:1px solid #e1e4da; }
 @media (max-width: 768px) {
   main.container-fluid { padding-inline: .75rem; }
   .desktop-table { display: none; }
@@ -70,8 +144,13 @@ pre { max-width: 100%; overflow-wrap: anywhere; white-space: pre-wrap; }
   h1 { font-size: clamp(1.65rem, 8vw, 2.25rem); }
   .calendar-seed-heading,.calendar-seed { width:8.5rem; min-width:8.5rem; max-width:8.5rem; }
   .calendar-empty-note td { padding-left:9rem; }
+  .garden-section-attention { padding:.75rem; }
+  .garden-primary-details { grid-template-columns:1fr; }
+  .garden-date-row { grid-template-columns:1fr; gap:.15rem; }
+  .winter-month-nav { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .winter-month-checks { grid-template-columns:repeat(2,minmax(0,1fr)); }
 }
-@media(max-width:575.98px) { .sticky-bottom { position:static!important; } .form-actions .btn { width:100%; } }
+@media(max-width:575.98px) { .sticky-bottom { position:static!important; } .form-actions .btn { width:100%; } .garden-card-header { flex-direction:column; } .winter-facts { grid-template-columns:1fr; } .research-seed { flex-direction:column; gap:.1rem; align-items:flex-start; } .research-badge { margin-left:0; } }
 @media print {
   .navbar, .skip-link, .no-print, .btn, form, .alert { display:none!important; }
   body { background:#fff!important; color:#000; }
