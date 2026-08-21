@@ -2,6 +2,10 @@
 
 This guide walks through testing Seed Library from a clean checkout through the core Version 1.0 workflows.
 
+## Public read-only portfolio demo
+
+Set `app.demo_read_only` to `true` in the deployment `config.php` to expose only Dashboard, Inventory and seed details, Calendar, My Garden, Winter Sowing, and Companions. The application rejects non-GET requests and non-approved routes before dispatch; deploy with a SELECT-only database account as defense in depth. Run `php tests/demo_read_only_static.php` with the full source suite below.
+
 ## Phase 6 automated and live verification boundary
 
 Run the complete source suite from the repository root:
