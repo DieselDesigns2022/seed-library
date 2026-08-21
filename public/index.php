@@ -14,9 +14,10 @@ if ($base && str_starts_with($path, $base)) { $path = trim(substr($path, strlen(
 $path = $path ?: 'dashboard';
 
 try {
+    enforce_demo_access($path);
     if ($path === 'login') { login_page(); return; }
     if ($path === 'logout') { logout_action(); return; }
-    require_auth();
+    if (!demo_read_only()) require_auth();
     match_route($path);
 } catch (Throwable $e) {
     error_log((string)$e);
@@ -148,11 +149,11 @@ function dashboard_page(): void
         'Last Frost'=>recurring_date_countdown(setting('average_last_frost','05-05')),
     ];
     render('Dashboard', function () use ($counts,$frostCountdowns) { ?>
-    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4"><div><h1>Dashboard</h1><p class="text-muted mb-0">Zone <?= e(setting('zone','6B')) ?> · <?= e(setting('region','Southeast Michigan')) ?> · Last frost <?= e(setting_date_label('average_last_frost','05-05')) ?></p></div><div class="no-print"><a class="btn btn-success" href="<?= e(url('seeds/create')) ?>">Add Seed</a> <a class="btn btn-outline-success" href="<?= e(url('import')) ?>">Import</a></div></div>
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4"><div><h1>Dashboard</h1><p class="text-muted mb-0">Zone <?= e(setting('zone','6B')) ?> · <?= e(setting('region','Southeast Michigan')) ?> · Last frost <?= e(setting_date_label('average_last_frost','05-05')) ?></p></div><?php if(!demo_read_only()):?><div class="no-print"><a class="btn btn-success" href="<?= e(url('seeds/create')) ?>">Add Seed</a> <a class="btn btn-outline-success" href="<?= e(url('import')) ?>">Import</a></div><?php endif?></div>
     <form action="<?= e(url('seeds')) ?>" class="card card-body mb-4"><label class="form-label" for="dashboard-search">Dashboard Quick Search</label><div class="input-group"><input id="dashboard-search" class="form-control" name="search" placeholder="Seed number, name, variety, category, family, use, companion, or notes"><button class="btn btn-success">Search Inventory</button></div></form>
     <div class="row g-3 mb-4"><?php foreach($frostCountdowns as $label=>$days):?><div class="col-md-6"><div class="card card-metric frost-card h-100"><div class="card-body"><div class="frost-label mb-1"><?=e($label)?> Countdown</div><div class="frost-value"><?= $days===null?e($label).' Unavailable':e($days).' '.($days===1?'Day':'Days').' Until '.e($label) ?></div></div></div></div><?php endforeach?></div>
     <div class="row g-3 mb-4"><?php foreach ($counts as $label => $count): ?><div class="col-6 col-lg-3"><div class="card card-metric shadow-sm h-100"><div class="card-body"><div class="text-muted small"><?= e($label) ?></div><div class="display-6 fw-bold"><?= e($count) ?></div></div></div></div><?php endforeach; ?></div>
-    <div class="card card-body"><h2 class="h4">Quick Actions</h2><div class="d-flex flex-wrap gap-2"><a class="btn btn-outline-success" href="<?= e(url('seeds')) ?>">View All Seeds</a><a class="btn btn-outline-success" href="<?= e(url('seeds/create')) ?>">Add New Seed</a><a class="btn btn-outline-success" href="<?= e(url('calendar')) ?>">Planting Calendar</a><a class="btn btn-outline-success" href="<?= e(url('companions')) ?>">Companion Finder</a><a class="btn btn-outline-success" href="<?= e(url('import')) ?>">Import Seeds</a><a class="btn btn-outline-secondary" href="<?= e(url('export')) ?>">Export</a><a class="btn btn-outline-secondary" href="<?= e(url('print')) ?>">Print</a></div></div>
+    <div class="card card-body"><h2 class="h4">Quick Actions</h2><div class="d-flex flex-wrap gap-2"><a class="btn btn-outline-success" href="<?= e(url('seeds')) ?>">View All Seeds</a><?php if(!demo_read_only()):?><a class="btn btn-outline-success" href="<?= e(url('seeds/create')) ?>">Add New Seed</a><?php endif?><a class="btn btn-outline-success" href="<?= e(url('calendar')) ?>">Planting Calendar</a><a class="btn btn-outline-success" href="<?= e(url('companions')) ?>">Companion Finder</a><?php if(!demo_read_only()):?><a class="btn btn-outline-success" href="<?= e(url('import')) ?>">Import Seeds</a><a class="btn btn-outline-secondary" href="<?= e(url('export')) ?>">Export</a><a class="btn btn-outline-secondary" href="<?= e(url('print')) ?>">Print</a><?php endif?></div></div>
     <?php });
 }
 

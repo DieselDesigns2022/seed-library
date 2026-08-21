@@ -105,6 +105,41 @@ function app_debug(): bool
     return (bool)config('app.debug', false);
 }
 
+function demo_read_only(): bool
+{
+    return (bool)config('app.demo_read_only', false);
+}
+
+/** Routes intentionally exposed to anonymous visitors in portfolio mode. */
+function demo_route_is_public(string $path): bool
+{
+    return in_array($path, ['dashboard', 'seeds', 'calendar', 'garden', 'winter-sowing', 'companions'], true)
+        || preg_match('#^seeds/\d+$#', $path) === 1;
+}
+
+/** Return the HTTP error status for a demo request, or null when it is allowed. */
+function demo_access_policy(string $method, string $path): ?int
+{
+    if (strtoupper($method) !== 'GET') return 405;
+    return demo_route_is_public($path) ? null : 403;
+}
+
+/** Enforce demo policy before route handlers can perform work. */
+function enforce_demo_access(string $path): void
+{
+    if (!demo_read_only()) return;
+    $status = demo_access_policy(request_method(), $path);
+    if ($status === 405) {
+        http_response_code(405);
+        header('Allow: GET');
+        exit('Portfolio Demo — Read Only');
+    }
+    if ($status === 403) {
+        http_response_code(403);
+        exit('This route is unavailable in the read-only portfolio demo.');
+    }
+}
+
 function csrf_token(): string
 {
     if (empty($_SESSION['csrf_token'])) {

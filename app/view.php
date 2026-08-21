@@ -16,23 +16,24 @@ function render(string $title, callable $content, array $options = []): void
 </head>
 <body class="<?= $print ? 'print-view' : '' ?>">
 <a class="skip-link" href="#main-content">Skip to main content</a>
+<?php if (demo_read_only()): ?><div class="alert alert-warning rounded-0 text-center fw-bold mb-0" role="status">Portfolio Demo — Read Only</div><?php endif; ?>
 <?php if (!$print): ?>
 <nav class="navbar navbar-expand-lg navbar-dark bg-success sticky-top shadow-sm">
   <div class="container-fluid">
     <a class="navbar-brand fw-bold" href="<?= e(url('dashboard')) ?>">🌱 Seed Library</a>
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMain" aria-controls="navMain" aria-expanded="false" aria-label="Open navigation"><span class="navbar-toggler-icon"></span></button>
     <div class="collapse navbar-collapse" id="navMain">
-      <?php if (current_user()): ?>
+      <?php if (current_user() || demo_read_only()): ?>
       <ul class="navbar-nav me-auto mb-2 mb-lg-0">
         <li class="nav-item"><a class="nav-link" href="<?= e(url('seeds')) ?>">Inventory</a></li>
         <li class="nav-item"><a class="nav-link" href="<?= e(url('calendar')) ?>">Calendar</a></li>
         <li class="nav-item"><a class="nav-link" href="<?= e(url('garden')) ?>">My Garden</a></li>
         <li class="nav-item"><a class="nav-link" href="<?= e(url('winter-sowing')) ?>">Winter Sowing</a></li>
         <li class="nav-item"><a class="nav-link" href="<?= e(url('companions')) ?>">Companions</a></li>
-        <li class="nav-item dropdown"><a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">Tools</a><ul class="dropdown-menu"><li><a class="dropdown-item" href="<?= e(url('import')) ?>">Import</a></li><li><a class="dropdown-item" href="<?= e(url('export')) ?>">Export</a></li><li><a class="dropdown-item" href="<?= e(url('print')) ?>">Print Reports</a></li><?php if(!empty(current_user()['is_owner'])):?><li><hr class="dropdown-divider"></li><li><a class="dropdown-item" href="<?= e(url('backup')) ?>">Database Backup &amp; Restore</a></li><?php endif?></ul></li>
-        <?php if(!empty(current_user()['is_owner'])):?><li class="nav-item dropdown"><a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">Manage</a><ul class="dropdown-menu"><li><a class="dropdown-item" href="<?= e(url('settings')) ?>">Settings</a></li><li><a class="dropdown-item" href="<?= e(url('manage/categories')) ?>">Categories</a></li><li><a class="dropdown-item" href="<?= e(url('manage/families')) ?>">Plant Families</a></li><li><a class="dropdown-item" href="<?= e(url('manage/uses')) ?>">Uses</a></li><li><a class="dropdown-item" href="<?= e(url('manage/statuses')) ?>">Statuses</a></li><li><a class="dropdown-item" href="<?= e(url('manage/storage')) ?>">Storage Locations</a></li></ul></li><?php endif?>
+        <?php if(!demo_read_only()):?><li class="nav-item dropdown"><a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">Tools</a><ul class="dropdown-menu"><li><a class="dropdown-item" href="<?= e(url('import')) ?>">Import</a></li><li><a class="dropdown-item" href="<?= e(url('export')) ?>">Export</a></li><li><a class="dropdown-item" href="<?= e(url('print')) ?>">Print Reports</a></li><?php if(!empty(current_user()['is_owner'])):?><li><hr class="dropdown-divider"></li><li><a class="dropdown-item" href="<?= e(url('backup')) ?>">Database Backup &amp; Restore</a></li><?php endif?></ul></li>
+        <?php if(!empty(current_user()['is_owner'])):?><li class="nav-item dropdown"><a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">Manage</a><ul class="dropdown-menu"><li><a class="dropdown-item" href="<?= e(url('settings')) ?>">Settings</a></li><li><a class="dropdown-item" href="<?= e(url('manage/categories')) ?>">Categories</a></li><li><a class="dropdown-item" href="<?= e(url('manage/families')) ?>">Plant Families</a></li><li><a class="dropdown-item" href="<?= e(url('manage/uses')) ?>">Uses</a></li><li><a class="dropdown-item" href="<?= e(url('manage/statuses')) ?>">Statuses</a></li><li><a class="dropdown-item" href="<?= e(url('manage/storage')) ?>">Storage Locations</a></li></ul></li><?php endif?><?php endif?>
       </ul>
-      <form method="post" action="<?= e(url('logout')) ?>" class="d-flex"><?= csrf_field() ?><button class="btn btn-outline-light btn-sm">Logout</button></form>
+      <?php if(!demo_read_only()):?><form method="post" action="<?= e(url('logout')) ?>" class="d-flex"><?= csrf_field() ?><button class="btn btn-outline-light btn-sm">Logout</button></form><?php endif?>
       <?php endif; ?>
     </div>
   </div>

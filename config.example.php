@@ -6,6 +6,9 @@ return [
         'session_name' => 'seed_library_session',
         'timezone' => 'America/Detroit',
         'debug' => false,
+        // Public portfolio mode permits anonymous browsing of approved pages while
+        // rejecting every write and all operational/administrative routes.
+        'demo_read_only' => false,
         // Set true in production when HTTPS terminates at a reverse proxy.
         // This forces Secure session cookies without trusting request headers.
         'force_https' => false,
